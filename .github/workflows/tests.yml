@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GAME: 010015100B514000   # Super Mario Bros. Wonder: the profile the host and gfx tests are built for (any profile does; the tests are about code, not the game)
+  GAME: 01006F8002326000   # Animal Crossing: the only installed game profile in this dedicated source snapshot
 
 defaults:
   run:
@@ -126,11 +126,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - name: Mac host for three profiles (Vulkan, NVN, OpenGL)
+      - name: Mac host for ACNH and API metadata fixtures (Vulkan, NVN, OpenGL)
+        env:
+          DM_GAMES_DIR: ${{ github.workspace }}/tests/fixtures/profiles
         run: |
           mkdir -p logs
-          # Wonder: NVN; Hades: Vulkan; Digimon Story Cyber Sleuth: OpenGL. The second and third reuse the libvpx build in dm/host/gen/vpx.
-          for g in 010015100B514000 0100535012974000 010014E00DB56000; do
+          # ACNH: NVN; Hades metadata: Vulkan; Digimon metadata: OpenGL. The second and third reuse the libvpx build in dm/host/gen/vpx.
+          for g in "$GAME" 0100535012974000 010014E00DB56000; do
             echo "::group::dmhost $g"
             make -C dm/host GAME=$g -j3 dmhost 2>&1 | tee "logs/dmhost-$g.log"
             test -x dm/host/dmhost

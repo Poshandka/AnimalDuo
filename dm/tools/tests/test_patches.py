@@ -17,7 +17,8 @@ REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO / 'dm/tools')); sys.path.insert(0, str(REPO / 'dm/games'))
 import game   # noqa: E402
 
-FILES = [REPO / 'dm/tools/sdk_patches.py'] + sorted((REPO / 'dm/games').glob('*/patches.py'))
+FIXTURES = REPO / 'tests/fixtures/profiles'
+FILES = [REPO / 'dm/tools/sdk_patches.py'] + sorted((REPO / 'dm/games').glob('*/patches.py')) + sorted(FIXTURES.glob('*/patches.py'))
 
 
 def load(path, n):
@@ -39,6 +40,7 @@ def builds_of(g):   # {build ID: module name} of a profile's build rows (a profi
     return {bid: m for row in (game.load(g) if isinstance(g, str) else g).builds().values() for m, bid in row.items() if m != 'display'}
 
 
+@mock.patch.dict(os.environ, {'DM_GAMES_DIR': str(FIXTURES)})
 class Registry(unittest.TestCase):
     def test_no_build_claimed_twice(self):
         for kind in ('CUTS', 'OBS', 'FRAME_STEP'):
@@ -154,6 +156,7 @@ class ExternalRegistry(unittest.TestCase):
 
 
 class RewriteKey(unittest.TestCase):
+    @mock.patch.dict(os.environ, {'DM_GAMES_DIR': str(FIXTURES)})
     def test_patch_files_of_the_games_builds(self):
         spec = importlib.util.spec_from_file_location('build_ipa_from_nsp', REPO / 'scripts/build_ipa_from_nsp.py')
         nsp = importlib.util.module_from_spec(spec); spec.loader.exec_module(nsp)
@@ -162,12 +165,12 @@ class RewriteKey(unittest.TestCase):
         for bid, m in builds_of(gid).items():
             if m in ('main', 'sdk'): (tmp / m).write_bytes(b'NSO0' + bytes(0x3c) + bytes.fromhex(bid))
         got = nsp.patch_files(REPO, tmp, ['main', 'sdk'])
-        self.assertEqual(got, [REPO / 'dm/tools/sdk_patches.py', REPO / 'dm/games' / gid / 'patches.py'])
+        self.assertEqual(got, [REPO / 'dm/tools/sdk_patches.py', FIXTURES / gid / 'patches.py'])
         (tmp / 'main').write_bytes(b'NSO0' + bytes(0x3c) + bytes(16)); (tmp / 'sdk').write_bytes(b'NSO0' + bytes(0x3c) + bytes(16))
         self.assertEqual(nsp.patch_files(REPO, tmp, ['main', 'sdk']), [])   # an unregistered build: no patch file counts
-        self.assertEqual(nsp.patch_files(REPO, tmp, ['main', 'sdk'], gid), [REPO / 'dm/games' / gid / 'patches.py'])
+        self.assertEqual(nsp.patch_files(REPO, tmp, ['main', 'sdk'], gid), [FIXTURES / gid / 'patches.py'])
         g = game.load(gid)
-        self.assertNotIn(REPO / 'dm/games' / gid / 'patches.py', nsp.profile_files(g))   # only the rewrite step reads it
+        self.assertNotIn(FIXTURES / gid / 'patches.py', nsp.profile_files(g))   # only the rewrite step reads it
 
     def test_patch_files_of_a_provisional_profile(self):
         spec = importlib.util.spec_from_file_location('build_ipa_from_nsp', REPO / 'scripts/build_ipa_from_nsp.py')

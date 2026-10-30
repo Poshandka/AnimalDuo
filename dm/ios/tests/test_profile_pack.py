@@ -11,6 +11,8 @@ REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO / 'dm/games'))
 import game
 
+FIXTURES = REPO / 'tests/fixtures/profiles'
+
 
 class ProfilePackTests(unittest.TestCase):
     def test_pulling_libraries_follow_compiled_profile_and_explicit_override(self):
@@ -24,7 +26,7 @@ class ProfilePackTests(unittest.TestCase):
                 dm = root / 'dm'
                 header = dm / 'host/gen' / gid / 'game_profile.h'
                 header.parent.mkdir(parents=True)
-                header.write_text(game.header(game.Game(REPO / 'dm/games' / gid)))
+                header.write_text(game.header(game.Game(FIXTURES / gid)))
                 app, shaders, romfs = [root / name for name in ('DmIOS.app', 'shaders', 'romfs')]
                 for folder in (app, shaders / 'b-fixture', romfs): folder.mkdir(parents=True)
                 for name in ('fixture_b.metallib', 'fixture_bp.metallib', 'fixture_bv.metallib', 'fixture_b.json'):
@@ -34,7 +36,7 @@ class ProfilePackTests(unittest.TestCase):
                 (root / 'tools').symlink_to(REPO / 'dm/ios/tools', target_is_directory=True)
                 out = root / 'fixture.ipa'
                 env = {k: v for k, v in os.environ.items() if k not in ('IOS_PULL', 'DM_GAMES_DIR', 'DM_GAMES_FIRST')}
-                env.update(GAME=gid, DM=str(dm), APP=str(app), MSL_IOS=str(shaders), MSLDIR='b-fixture',
+                env.update(DM_GAMES_DIR=str(FIXTURES), GAME=gid, DM=str(dm), APP=str(app), MSL_IOS=str(shaders), MSLDIR='b-fixture',
                            AOC='', ROMFS=str(romfs), OUT_IPA=str(out), PROFILE_TOOL=str(REPO / 'dm/games/game.py'))
                 if override is not None: env['IOS_PULL'] = override
                 if with_pso:

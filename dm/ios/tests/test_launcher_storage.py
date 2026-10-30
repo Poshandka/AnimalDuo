@@ -21,7 +21,7 @@ class LauncherStorageTests(unittest.TestCase):
             tmp = Path(tmp)
             (tmp / 'patched').mkdir()
             (tmp / 'patched/main.fixups.tsv').write_text('# RENDER_SCALE\t1\n')   # the render-scale row, a range
-            with patch.dict(os.environ, {'GFXAPI': 'nvn'}), patch.object(settings.nacp, 'languages', return_value=['en-US', 'ja']):
+            with patch.dict(os.environ, {'GFXAPI': 'nvn', 'DM_GAMES_DIR': str(REPO / 'tests/fixtures/profiles')}), patch.object(settings.nacp, 'languages', return_value=['en-US', 'ja']):
                 (tmp / 'launcher.json').write_text(json.dumps(settings.build('01007EF00011E000', tmp / 'patched', tmp / 'control.nacp')))
             exe = tmp / 'launcher_storage_check'
             compile_result = subprocess.run(['xcrun', '-sdk', 'macosx', 'swiftc', '-swift-version', '5', '-parse-as-library', '-module-cache-path', str(tmp / 'module-cache'),

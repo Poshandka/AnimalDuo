@@ -24,7 +24,7 @@ AnimalDuo 公开的是《集合啦！动物森友会》3.0.3 的 Apple 移植增
 
 克隆仓库：
 
-    git clone https://github.com/ShawndYang/AnimalDuo.git
+    git clone --depth 1 https://github.com/ShawndYang/AnimalDuo.git
     cd AnimalDuo
 
 查看打包脚本的完整参数：

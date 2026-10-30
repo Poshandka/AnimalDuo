@@ -16,10 +16,11 @@ PERFORMANCE_NVN = ['DM_PRESENT_SNAP', 'DM_PSO_MTL4', 'DM_PSO_PREBUILD', 'DM_NVN_
 
 
 def build(gid, api):
-    with tempfile.TemporaryDirectory() as tmp, patch.object(settings.nacp, 'languages', return_value=['en-US']), patch.dict(os.environ, {'GFXAPI': api}):
+    with tempfile.TemporaryDirectory() as tmp, patch.object(settings.nacp, 'languages', return_value=['en-US']), patch.dict(os.environ, {'GFXAPI': api, 'DM_GAMES_DIR': str(ROOT / 'tests/fixtures/profiles')}):
         return {s['env']: s for s in settings.build(gid, tmp, Path(tmp) / 'control.nacp')['settings']}
 
 
+@patch.dict(os.environ, {'DM_GAMES_DIR': str(ROOT / 'tests/fixtures/profiles')})
 class LauncherSettingsTests(unittest.TestCase):
     def test_upscaling_is_opt_in_for_every_graphics_api(self):
         for api, gid in [('nvn', BOTW), ('vulkan', '0100535012974000'), ('gl', '010014E00DB56000')]:

@@ -17,7 +17,7 @@ try:
 except ImportError:
     uc = arm = None
 
-spec = importlib.util.spec_from_file_location('astral_patches', Path(__file__).resolve().parents[2] / 'games/01007300020FA000/patches.py')
+spec = importlib.util.spec_from_file_location('astral_patches', Path(__file__).resolve().parents[3] / 'tests/fixtures/profiles/01007300020FA000/patches.py')
 patch = importlib.util.module_from_spec(spec); spec.loader.exec_module(patch)
 
 

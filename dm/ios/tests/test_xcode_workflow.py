@@ -37,7 +37,7 @@ class XcodePipelineTests(unittest.TestCase):
             update = root / 'update.nsp'
             base.touch()
             update.touch()
-            registered = game.load('0100A6301214E000')
+            registered = game.Game(REPO / 'tests/fixtures/profiles/0100A6301214E000')
             profile = SimpleNamespace(id=registered.id, title_id=registered.title_id, dir=root / 'profile' / registered.id,
                                       get=registered.get, words=registered.words,
                                       builds=lambda: {'v0': {'display': '1.0.0', 'main': 'other-build'}})

@@ -24,12 +24,23 @@ iPad、iPhone 和 Mac 的界面并非完全相同：竖屏副屏主要面向 iPa
 
 ## 获取源码与构建
 
-- [浏览或下载仓库](https://github.com/ShawndYang/AnimalDuo)：main 分支包含最新说明。
-- [源码发布版本](https://github.com/ShawndYang/AnimalDuo/releases)：提供已脱敏的源码归档。
+- [精简源码 ZIP](https://github.com/ShawndYang/AnimalDuo/archive/refs/heads/main.zip)：下载 main 当前快照。
+- [浏览仓库](https://github.com/ShawndYang/AnimalDuo)：查看源码与最新说明。
+- [历史源码发布版本](https://github.com/ShawndYang/AnimalDuo/releases)：旧版归档保留，体积可能更大。
 - [中文构建与使用说明](docs/BUILD.zh-CN.md)：依赖、基础构建、可选功能打包及存档使用方式。
 - [English source guide](PUBLIC-SOURCE.md)：英文功能、构建与验证范围。
 - [开发文档](docs/development.md)：底层构建流程和参数。
-- [上游游戏兼容性列表](README.en.md#games)：这是上游测试记录，不代表 AnimalDuo 已逐一验证所有游戏。
+- [上游游戏兼容性列表](https://github.com/seedds/nxnative/blob/b7a5cd43453722d448e07407d88a9c05ed294492/dm/games/README.md#games)：其他游戏属于上游项目，本仓库仅内置动森适配。
+
+仓库已精简为动森专用源码：保留完整动森配置、着色器预热索引、现有功能及必要依赖，移除了其他游戏的大型索引和截图。少量元数据留作工具回归测试，不作为可游玩的适配配置。
+
+下载较小的当前版本，请使用 main 分支的 **Code → Download ZIP**，或只克隆最新提交：
+
+```sh
+git clone --depth 1 https://github.com/ShawndYang/AnimalDuo.git
+```
+
+历史提交和旧版 Release 保留，因此完整 Git 历史克隆或旧版归档仍可能较大。
 
 构建需要自行准备匹配的游戏本体、3.0.3 更新、所需 DLC 和主机密钥，并将它们放在源码目录之外。发布包为源码，下载后不能直接作为游戏安装。
 
@@ -52,7 +63,7 @@ iPad、iPhone 和 Mac 的界面并非完全相同：竖屏副屏主要面向 iPa
 
 ## 开源、隐私与致谢
 
-公开版排除了玩家存档、密钥、云文件夹书签、私有签名资料、本地 Git 历史及原始测试记录。上游原有公开配图和作者署名保留，未添加本地玩家截图。
+公开版排除了玩家存档、密钥、云文件夹书签、私有签名资料、本地 Git 历史及原始测试记录。上游作者署名和许可证保留；其他游戏的公开图库已移除，未添加本地玩家截图。
 
 感谢 nxnative、d2r-mobile、Eden Duo、Eden Duo Companions、NHSE 及其依赖项目。原 nxnative 的 MIT 声明保留；副屏相关模块采用 GPL-3.0-or-later，其他组件各自的许可同样保留，包含副屏的组合构建遵循相应 GPL 许可要求。详见 [LICENSES.txt](LICENSES.txt)、[组件声明](dm/third_party/eden_duo/NOTICES.txt)和[英文原项目说明](README.en.md)。
 

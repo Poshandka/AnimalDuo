@@ -8,12 +8,15 @@ REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO / 'dm/tools'))
 import usage
 
+FIXTURES = REPO / 'tests/fixtures/profiles'
 KINDS = {'api', 'key', 'present', 'shader', 'nvn', 'hle', 'svc', '*'}
 
 
 class Usage(unittest.TestCase):
     def test_map_names_files_and_kinds(self):
         files = [str(p.relative_to(REPO)) for p in REPO.rglob('*') if p.is_file() and '.git' not in p.parts]
+        # External-profile fixtures retain optional usage manifests omitted from the ACNH runtime profile.
+        files += ['dm/games/' + str(p.relative_to(FIXTURES)) for p in FIXTURES.glob('*/usage.tsv')]
         for glob, frx, pat, why in usage.load_map():
             self.assertTrue(any(fnmatch.fnmatch(f, glob) for f in files), f'impact_map.tsv: {glob} matches no file')
             self.assertTrue(why, f'impact_map.tsv: {glob} gives no reason')
@@ -59,7 +62,7 @@ class Usage(unittest.TestCase):
             self.assertEqual(usage.read_manifest(p), {('nvn', 'nvnQueueFinish'): 12, ('api', 'nvn'): 1, ('shader', 'image_atomic'): 3})
 
     def test_committed_manifests(self):   # names and counts only
-        for p in (REPO / 'dm/games').glob('*/usage.tsv'):
+        for p in sorted((REPO / 'dm/games').glob('*/usage.tsv')) + sorted(FIXTURES.glob('*/usage.tsv')):
             for k, n in usage.read_manifest(p):
                 self.assertIn(k, KINDS - {'*'}, p); self.assertNotIn('/', n if k != 'shader' else n.replace('/', ''), p)
 

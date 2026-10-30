@@ -10,7 +10,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO / 'dm/gfx/tools'))
-_had = os.environ.get('DM_GAME'); os.environ['DM_GAME'] = '01007BB017812000'   # shader_split loads a profile at import; other tests expect no default game
+_had = os.environ.get('DM_GAME'); os.environ['DM_GAME'] = '01006F8002326000'   # shader_split loads a profile at import; other tests expect no default game
 import shader_split as ss
 import unityfs
 if _had is None: del os.environ['DM_GAME']

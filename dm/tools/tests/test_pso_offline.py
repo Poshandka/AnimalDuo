@@ -258,7 +258,8 @@ class Default(unittest.TestCase):
         self.assertEqual(self.gpus(games, DM_PSO_GPUS='')['0100000000F0F000'], 'on')
 
     def test_breath_of_the_wild(self):   # the profile that turns the Metal 4 path on: its app gets the archive
-        r = subprocess.run([sys.executable, str(REPO / 'dm/games/game.py'), '01007EF00011E000', 'pso_mtl4', 'off'], capture_output=True, text=True)
+        r = subprocess.run([sys.executable, str(REPO / 'dm/games/game.py'), '01007EF00011E000', 'pso_mtl4', 'off'], capture_output=True, text=True,
+                           env={**os.environ, 'DM_GAMES_DIR': str(REPO / 'tests/fixtures/profiles')})
         self.assertEqual(r.stdout.strip(), 'on')
 
 

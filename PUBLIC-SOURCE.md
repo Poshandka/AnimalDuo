@@ -4,7 +4,7 @@
 
 ## Scope
 
-This is a source snapshot of the Animal Crossing 3.0.3 Apple extension, based on nxnative revision b7a5cd43453722d448e07407d88a9c05ed294492. It preserves the original source and copyright notices. Runtime sources match the resident-dialogue release; this publication only removes private records, unnecessary debug metadata and the nested dependency archive, and adds documentation and ignore rules.
+This is a source snapshot of the Animal Crossing 3.0.3 Apple extension, based on nxnative revision b7a5cd43453722d448e07407d88a9c05ed294492. It preserves the original source and copyright notices. Runtime sources match the resident-dialogue release; publication removes private records, unnecessary debug metadata and the nested dependency archive. The dedicated AnimalDuo tree also omits other games' large profile tables and the upstream screenshot gallery; their small, unchanged metadata and patch files survive only as opt-in test fixtures. The complete ACNH profile, runtime, dependencies and licenses are retained.
 
 Included extensions:
 
@@ -63,7 +63,7 @@ See LICENSES.txt and the individual component notices. Companion-enabled combine
 
 ## Privacy
 
-This public snapshot has no local Git history. It excludes historical test recordings, private paths contained in those recordings, player saves, cloud-folder bookmarks, signing profiles, personal credentials and locally generated game output. The original 78 upstream gallery images and authored companion strings are retained unchanged; no local player screenshots are added. Upstream author credits remain intact.
+The initial public snapshot excluded private local Git history. Subsequent public commits and older source releases are retained; download main as a ZIP or use `git clone --depth 1` for the smaller current tree. It excludes historical test recordings, private paths contained in those recordings, player saves, cloud-folder bookmarks, signing profiles, personal credentials and locally generated game output. The upstream screenshot gallery is omitted to reduce downloads. Authored companion strings remain unchanged; no local player screenshots are added. Upstream author credits remain intact.
 
 Debug symbols and the nested NHSE source ZIP are excluded; the dependency is identified by its public pinned source reference instead. Public upstream tool binaries remain byte-identical, including any upstream build metadata. The publication is a source project, not a distribution of Nintendo's game.
 
