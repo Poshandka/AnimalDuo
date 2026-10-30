@@ -1,0 +1,10 @@
+# Fresh-save startup regression. Later island gameplay and save/load need a separate route.
+save	new
+keys	40:A
+secs	90
+quick	75
+reach	900@70
+window	55	15
+shots	55,65
+hang	30
+prebuild	off

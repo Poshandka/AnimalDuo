@@ -1,0 +1,43 @@
+Animal Crossing 3.0.3 Apple usability update (2026-10-30)
+
+This is the complete corresponding source for the companion-enabled combined build, under GPL-3.0-or-later with existing component notices retained. Read LICENSES.txt, dm/third_party/eden_duo/NOTICES.txt and UPSTREAM.json. No extracted game, keys, user saves or folder bookmarks are included. The included NHSE-cb07454-source.zip supplies the original resident/house template source and its GPL license.
+
+Requirements and game preparation
+Apple Silicon Mac, Xcode 27.1 or compatible newer SDK, Python with the requirements documented in README.md and docs/development.md. Use scripts/build_ipa_from_nsp.py on your own game/NSP directory to prepare the 3.0.3 patched modules, RomFS, DLC, shared fonts and platform-specific translated shaders. This release uses patched_v2228224, chain d374e783beec and the 3.0.3 build pinned in dm/games/01006F8002326000. Do not reuse an iOS metallib for macOS. See the repository's packing instructions for initial key and NSP setup.
+
+Generate the optional 417-resident catalog using scripts/build_acnh_resident_catalog.py with your own extracted RomFS and the matching NHSE template source. Keep that generated game-derived JSON outside this source checkout. Resident-template attribution is in packaging/resident-template-LICENSE.txt.
+
+Unsigned universal iPad/iPhone build
+Set INPUT to the prepared build directory, WORK to external scratch, FONT_PY to Python with fontTools and OUTPUT to an external output directory. From this source root:
+
+GAME=01006F8002326000 W=WORK/ipa PATCHED=INPUT/patched_v2228224 ROMFS=INPUT/extract/v2228224/RomFS MSL_IOS=INPUT/shader/ios AOC=INPUT/aoc GFXAPI=nvn FONT_PY=/path/to/python DM_DISPLAY_NAME="Animal Crossing: New Horizons" DM_APP_VERSION=3.0.3 DM_BUNDLE_ID=org.nxnative.01006f8002326000 DM_LANG=zh-Hans DM_SHOW_FPS=0 DM_LDN=1 DM_RESIDENT_LICENSE=/path/to/resident-template-LICENSE.txt DM_RESIDENT_CATALOG=/path/to/resident_catalog.json DM_PSO_GPUS=none DM_ICON=INPUT/extract/v2228224/icon.jpg DM_ENV_FILE=packaging/ios-env.txt bash dm/ios/tools/build_ipa.sh OUTPUT/AnimalCrossing-raw.ipa
+
+Expand INPUT/WORK/OUTPUT placeholders into actual absolute paths before running. The build script generates all current Swift and host sources, including performance_apple.m, TouchControls.swift, PerformanceSettings.swift and TouchControlsConfiguration.inc. It produces an unsigned generic arm64 app with UIDeviceFamily 1,2 and minimum iOS 26.0. iPad has the portrait companion; iPhone remains landscape. No extra keyboard or portrait footer control is added.
+
+python3 packaging/repack_for_sideloadly.py OUTPUT/AnimalCrossing-raw.ipa OUTPUT/AnimalCrossing-3.0.3-zh-Hans-iPad-iPhone-Comfort.ipa
+
+All regular ZIP members must use DEFLATE to preserve the known sideloading extraction compatibility. The repacker validates CRC, bytes, file modes and methods. Signing/installation is performed by the player with their existing sideloading workflow. Preserve the original signing bundle identifier suffix to cover-install an existing app.
+
+Native Mac build and package
+The target is the user's M2 MacBook Air on macOS 27.2. Build a generic Apple Silicon host, avoiding -mcpu=native:
+
+make -C dm/host -j4 GAME=01006F8002326000 CFLAGS="-O1 -g -Wall -Wno-unused-function -arch arm64 -mcpu=apple-m1 -mmacosx-version-min=27.0"
+
+Use -B for a clean rebuild if old objects were made with another CPU target. Companion and libvpx use clang's Apple Silicon baseline. Set FONT to the prepared shared-font directory:
+
+python3 dm/mac/pack_app.py OUTPUT/AnimalCrossing-3.0.3-zh-Hans-Comfort-Mac.app --host dm/host/dmhost --patched INPUT/patched_v2228224 --romfs INPUT/extract/v2228224/RomFS --msl INPUT/shader/cache/b-d374e783beec --tables dm/games/01006F8002326000 --font FONT --aoc INPUT/aoc --env-file packaging/mac-env.txt --title-id 01006F8002326000 --name "Animal Crossing" --version 3.0.3 --bundle-id org.nxnative.01006f8002326000.lan --lang zh-Hans --marker Movie/OpeningMovie.webm --icon INPUT/extract/v2228224/icon.jpg --cloud-save-setup
+
+Do not pass an M4-specific offline pipeline archive to an M2 build. The Mac environment retains DM_LDN=1, DM_PSO_MTL4=0, DM_PSO_PREBUILD=0, DM_PRESENT_LINK=1 and DM_FPS_TARGET=30. The package is locally ad-hoc signed, not Developer ID signed/notarized.
+
+python3 dm/ios/tools/pack_ipa.py OUTPUT/AnimalCrossing-3.0.3-zh-Hans-Comfort-Mac.zip AnimalCrossing-3.0.3-zh-Hans-Comfort-Mac.app=OUTPUT/AnimalCrossing-3.0.3-zh-Hans-Comfort-Mac.app
+codesign --verify --deep --strict OUTPUT/AnimalCrossing-3.0.3-zh-Hans-Comfort-Mac.app
+
+Changes and settings
+The companion now honors scroll show_bind, inserts clipped scrollbar nodes in widget paint order and suppresses covered list input. It no longer invalidates unchanged views every second; hidden polling stops, passive page polling slows and missing image retries back off. Pockets/phone command cadence remains unchanged.
+The launcher exposes separate orientation touch profiles, a local save center and optional performance recording. Defaults remain unchanged. Touch profiles are stored as validated UserDefaults JSON data under DmTouchPortraitV1 and DmTouchLandscapeV1; drawing and hit testing share moved/scaled geometry. Artwork intensity multiplies the existing landscape faintness/auto-hide state. Physical controllers retain priority.
+Named checkpoints are complete local islands, capped at twenty under save.sync/checkpoints; they are not cloud-synced as names. Restore before gameplay checks a token binding current progress and the backup, verifies all data and backs up the complete previous tree. Existing cloud checkpoint format, conflict handling and namespace are retained. Provider-reported upload is separate from another device reading the data. The Mac application menu exposes status during play and management for next launch.
+DmPerformanceRecord defaults off and takes effect next game start. Real NVN drawable presentedTime callbacks write ten-second JSONL windows under DM_ROOT/performance for up to thirty minutes. FPS excludes separately counted gaps over two seconds, and p50/p95/p99 use one-ms histogram bins. Memory/thermal/power status is sampled on the report worker. These diagnostics do not change the game's original thirty-fps target or establish an iPad battery/performance gain.
+
+Validation
+The release report records the actual outcomes. Unit suites: host, full Metal, 300 tool tests (16 skips), 36 iOS tests and 71 graphics Python tests (5 skips). The local-game regression covers the only installed game, Animal Crossing, against b7a5cd434537 with two full runs. Its report is supplied separately.
+validation/comfort contains the native UIKit editor/save-center fixture; validation/scrollbar contains an actual Canvas old/fixed bitmap comparison. Test data are synthetic and use distinct app identities; never configure these fixtures to a user's real cloud/save folder. The Mac fixture's native actions created a checkpoint with the production engine; its screenshot capture was white, so no pixel-layout validation is claimed for that alert. Physical iPad, iPhone and M2 gameplay/thermals require player retesting.
