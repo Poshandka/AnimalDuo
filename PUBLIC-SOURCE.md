@@ -1,5 +1,7 @@
 # AnimalDuo public source
 
+[简体中文构建说明](docs/BUILD.zh-CN.md) · [中文首页](README.md) · English
+
 ## Scope
 
 This is a source snapshot of the Animal Crossing 3.0.3 Apple extension, based on nxnative revision b7a5cd43453722d448e07407d88a9c05ed294492. It preserves the original source and copyright notices. Runtime sources match the resident-dialogue release; this publication only removes private records, unnecessary debug metadata and the nested dependency archive, and adds documentation and ignore rules.
