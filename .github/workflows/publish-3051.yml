@@ -1,0 +1,86 @@
+name: Publish reviewed AnimalDuo 3.0.51 source
+on:
+  push:
+    branches: [main]
+    paths: [.github/workflows/publish-3051.yml]
+permissions:
+  contents: write
+concurrency: publish-animalduo-3051
+jobs:
+  publish:
+    if: github.repository == 'ShawndYang/AnimalDuo'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ShawndYang/AnimalDuo
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Download the reviewed draft asset
+        run: |
+          gh api repos/ShawndYang/AnimalDuo/releases/assets/706117621 -H 'Accept: application/octet-stream' > "$RUNNER_TEMP/AnimalDuo-3.0.51-source.zip"
+      - name: Verify and import the complete reviewed tree
+        shell: python
+        run: |
+          from pathlib import Path, PurePosixPath
+          import hashlib, os, re, stat, subprocess, zipfile
+          root = Path.cwd()
+          archive = Path(os.environ['RUNNER_TEMP']) / 'AnimalDuo-3.0.51-source.zip'
+          expected = '38d115ede4a4d81a6f8d8511802b4f8560e089c8cef623e0e6ee703decf75135'
+          assert hashlib.sha256(archive.read_bytes()).hexdigest() == expected
+          with zipfile.ZipFile(archive) as z:
+              assert z.testzip() is None
+              names = z.namelist()
+              assert len(names) == len(set(names)) == 1448
+              for info in z.infolist():
+                  parts = PurePosixPath(info.filename).parts
+                  assert parts[0] == 'AnimalDuo' and len(parts) > 1
+                  assert not PurePosixPath(info.filename).is_absolute()
+                  assert not {'..', '.git', 'validation', '__pycache__', 'xcuserdata', 'Gen'}.intersection(parts)
+                  assert not stat.S_ISLNK(info.external_attr >> 16)
+                  assert (info.external_attr >> 16) in (0o100644, 0o100755)
+                  assert not info.filename.endswith(('.ipa', '.pdb', '.keys', '.mobileprovision', '.p12', '.p8', '.nxsave', '.nxmeta', '.log', '.ips', '.crash'))
+                  assert parts[-1] not in ('main.dat', 'mainHeader.dat', 'personal.dat', 'prod.keys', 'title.keys')
+                  assert not re.search(rb'gh[pousr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|-----BEGIN (?:RSA |OPENSSH |EC )?PRIVATE KEY-----', z.read(info))
+              listed = set()
+              for row in z.read('AnimalDuo/SOURCE-MANIFEST.sha256').decode().splitlines():
+                  digest, name = row.split('  ', 1)
+                  assert hashlib.sha256(z.read('AnimalDuo/' + name)).hexdigest() == digest
+                  listed.add('AnimalDuo/' + name)
+              assert len(listed) == 1447
+              assert listed | {'AnimalDuo/SOURCE-MANIFEST.sha256'} == set(names)
+              assert z.read('AnimalDuo/VERSION') == b'3.0.51\n'
+              for name in subprocess.check_output(['git', 'ls-files', '-z']).decode().strip('\0').split('\0'):
+                  (root / name).unlink()
+              for info in z.infolist():
+                  target = root.joinpath(*PurePosixPath(info.filename).parts[1:])
+                  target.parent.mkdir(parents=True, exist_ok=True)
+                  target.write_bytes(z.read(info))
+                  target.chmod((info.external_attr >> 16) & 0o777)
+          subprocess.run(['git', 'add', '-A'], check=True)
+          subprocess.run(['git', 'diff', '--cached', '--check'], check=True)
+          tree = subprocess.check_output(['git', 'write-tree'], text=True).strip()
+          assert tree == '0cf81179faa2d34abd83e7c01d317ce2d3cf9dfa', tree
+          print('Verified 1448 reviewed files and the complete Git tree.')
+      - name: Commit and tag with a public service identity
+        run: |
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'release: publish reviewed AnimalDuo 3.0.51 source'
+          git push origin HEAD:main
+          git tag v3.0.51
+          git push origin refs/tags/v3.0.51
+      - name: Prepare Chinese release notes and checksum
+        shell: python
+        run: |
+          from pathlib import Path
+          import os
+          temp = Path(os.environ['RUNNER_TEMP'])
+          notes = Path('RELEASES/3.0.51.md').read_text()
+          notes = notes.replace('(../docs/BUILD.zh-CN.md)', '(https://github.com/ShawndYang/AnimalDuo/blob/v3.0.51/docs/BUILD.zh-CN.md)')
+          digest = '38d115ede4a4d81a6f8d8511802b4f8560e089c8cef623e0e6ee703decf75135'
+          notes += '\n\n源码 ZIP 含 1,448 个文件，7,711,007 字节。24 项发布检查、逐文件 SHA-256 与 ZIP CRC 校验通过。\n\nSHA-256：\n\n' + chr(96)*3 + 'text\n' + digest + '  AnimalDuo-3.0.51-source.zip\n' + chr(96)*3 + '\n'
+          (temp / 'release-notes.md').write_text(notes)
+          (temp / 'AnimalDuo-3.0.51-source.zip.sha256').write_text(digest + '  AnimalDuo-3.0.51-source.zip\n')
+      - name: Publish the matching source release
+        run: |
+          gh release upload v3.0.51 "$RUNNER_TEMP/AnimalDuo-3.0.51-source.zip.sha256"
+          gh release edit v3.0.51 --target "$(git rev-parse HEAD)" --title 'AnimalDuo 3.0.51：副屏按键与多端适配' --notes-file "$RUNNER_TEMP/release-notes.md" --draft=false --latest
