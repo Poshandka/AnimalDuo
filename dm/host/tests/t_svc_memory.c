@@ -8,6 +8,8 @@
 #include <sys/mman.h>
 #include <sys/wait.h>
 #include <unistd.h>
+#include <mach/mach.h>
+#include <mach/mach_vm.h>
 
 static int memory_mprotect(void *addr, size_t size, int prot);
 static _Noreturn void memory_abort(void);
@@ -216,6 +218,69 @@ static void ownership(void) {
     assert(!resize(0));
 }
 
+static void stack_released(uintptr_t a, size_t size) {
+    for (uintptr_t at = a; at < a + size;) {
+        mach_vm_address_t base = at;
+        mach_vm_size_t length = 0;
+        vm_region_basic_info_data_64_t region;
+        mach_msg_type_number_t count = VM_REGION_BASIC_INFO_COUNT_64;
+        mach_port_t object = MACH_PORT_NULL;
+        assert(mach_vm_region(mach_task_self(), &base, &length, VM_REGION_BASIC_INFO_64,
+            (vm_region_info_t)&region, &count, &object) == KERN_SUCCESS);
+        if (object != MACH_PORT_NULL) assert(mach_port_deallocate(mach_task_self(), object) == KERN_SUCCESS);
+        assert(base <= at && base + length > at);
+        assert(region.protection == VM_PROT_NONE);
+        at = base + length;
+    }
+    size_t pg = (size_t)getpagesize();
+    char *resident = calloc(size / pg, 1); assert(resident);
+    assert(!mincore((void *)a, size, resident));
+    for (size_t i = 0; i < size / pg; ++i) assert(!(resident[i] & MINCORE_INCORE));
+    free(resident);
+}
+static void stack_lifecycle(void) {
+    // ASLR chooses another destination when a scene recreates a worker. The
+    // retired destination must return to an unbacked reservation after copyback.
+    enum { N = 16, SIZE = 0x100000 };
+    assert(g_stack_cap >= N * SIZE && !resize(SIZE));
+    for (unsigned i = 0; i < N; ++i) {
+        uintptr_t dst = stack + i * SIZE;
+        memset((void *)heap, 0x31, SIZE);
+        assert(!map(dst, heap, SIZE));
+        for (size_t j = 0; j < SIZE; ++j) assert(((uint8_t *)dst)[j] == 0x31);
+        memset((void *)dst, i + 1, SIZE);
+        assert(!unmap(dst, heap, SIZE));
+        for (size_t j = 0; j < SIZE; ++j) assert(((uint8_t *)heap)[j] == i + 1);
+        stack_released(dst, SIZE);
+    }
+    size_t pg = memory_getpagesize();
+    if (pg > P) {
+        // Both boundaries share a host page with a live 4 KB stack. Unsorted
+        // metadata, reverse teardown and a remap must preserve those siblings.
+        assert(!map(stack + 3 * pg - P, heap, P));
+        assert(!map(stack, heap + P, P));
+        assert(!map(stack + P, heap + 2 * P, 3 * pg - 2 * P));
+        memset((void *)stack, 0x71, P);
+        memset((void *)(stack + 3 * pg - P), 0x83, P);
+        memset((void *)(stack + P), 0x62, 3 * pg - 2 * P);
+        assert(!unmap(stack + P, heap + 2 * P, 3 * pg - 2 * P));
+        stack_released(stack + pg, pg);
+        for (size_t i = 0; i < P; ++i) {
+            assert(((uint8_t *)stack)[i] == 0x71);
+            assert(((uint8_t *)(stack + 3 * pg - P))[i] == 0x83);
+        }
+        assert(!map(stack + P, heap + 8 * pg, P));
+        memset((void *)(stack + P), 0x94, P);
+        assert(!unmap(stack, heap + P, P));
+        for (size_t i = 0; i < P; ++i) assert(((uint8_t *)(stack + P))[i] == 0x94);
+        assert(!unmap(stack + P, heap + 8 * pg, P));
+        stack_released(stack, pg);
+        assert(!unmap(stack + 3 * pg - P, heap, P));
+        stack_released(stack + 2 * pg, pg);
+    }
+    assert(!resize(0));
+}
+
 static void module_sources(void) {
     uint8_t *b = mmap(NULL, 0x20000, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
     assert(b != MAP_FAILED);
@@ -290,6 +355,26 @@ static void concurrency(void) {
         assert(!unmap(stack, m.result ? other.b : m.b, P));
         assert(!pages(0, alias, 2 * P));
     }
+}
+static void concurrent_stack_teardown(void) {
+    size_t pg = memory_getpagesize();
+    assert(!resize(2 * pg));
+    for (unsigned i = 0; i < 40; ++i) {
+        assert(!map(stack, heap, P));
+        assert(!map(stack + P, heap + P, P));
+        memset((void *)stack, 0x47, P);
+        memset((void *)(stack + P), 0x58, P);
+        task a = {.svc=5, .a=stack, .b=heap, .c=P};
+        task b = {.svc=5, .a=stack + P, .b=heap + P, .c=P};
+        race(&a, &b);
+        assert(!a.result && !b.result);
+        for (size_t j = 0; j < P; ++j) {
+            assert(((uint8_t *)heap)[j] == 0x47);
+            assert(((uint8_t *)heap)[P + j] == 0x58);
+        }
+        stack_released(stack, (2 * P + pg - 1) & ~(pg - 1));
+    }
+    assert(!resize(0));
 }
 static void fragmented_queries(void) {
     // Independent byte-sized model checks word boundaries and free runs across
@@ -458,7 +543,7 @@ int main(int argc, char **argv) {
     for (unsigned i = 0; i < 8; ++i) assert(!pthread_create(&threads[i], NULL, init_worker, &addresses[i]));
     for (unsigned i = 0; i < 8; ++i) { assert(!pthread_join(threads[i], NULL)); assert(addresses[i] == addresses[0]); }
     alias = addresses[0]; stack = info(I_StackAddr); heap = info(I_HeapAddr);
-    lazy_commit(); alias_lifecycle(); ownership(); module_sources(); failures(); concurrency(); fragmented_queries();
+    lazy_commit(); alias_lifecycle(); ownership(); stack_lifecycle(); module_sources(); failures(); concurrency(); concurrent_stack_teardown(); fragmented_queries();
     guest_helper();
     if (!DM_GAME_MEM_MAP_LIMIT) metadata_limit();
 #ifdef TEST_REAL_DIRTY

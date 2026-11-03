@@ -1,0 +1,74 @@
+Animal Crossing larger persistent companion controls, 2026-11-03.
+Game 3.0.3; unsigned generic arm64 application 3.0.51; minimum iOS/iPadOS 26.
+
+The player requested larger portrait controls, higher plus/minus and controls
+that remain visible during companion operations. The previous whole-panel
+busy suppression predated the shared side frames. Gesture, local-operation and
+native-menu notifications could still hide controls and reset held game input.
+
+Reserved portrait controls now remain visible and interactive through companion
+operations and upper-game typing/drawing. The bridge accepts the same activity
+callbacks without the obsolete state and restoration timer. Inactive
+presentation, a physical controller and explicit Direct touch retain their
+existing hide policy. Landscape keyboard/drawing lifetime and auto fade remain.
+
+The shared side columns increase from 14% (60..110 points) to 16% (68..128 points).
+Default controls grow approximately 15% in native portrait surfaces. The fitted
+middle body, drawn paths and inverse interaction coordinates use the same
+partition. Plus/minus occupy the middle row between upper/lower controls; L3/R3
+move to the lower function row. Short surfaces protect the complete 44-point
+menu targets from adjacent groups. Whole default groups stay centred, custom
+scaling and offsets remain confined, and the footer stays at the panel bottom.
+Main game size, equal Duo halves and ordinary-phone landscape remain unchanged.
+
+The UIKit matrix passes 26,524 panel assertions across ninety default/scaled/
+extreme-offset poses. Actual painted paths and hit regions are compared with
+the Swift renderer's middle frame. Real A remains held throughout overlapping
+touch/local/native operation notifications and releases normally. Native-size
+default controls grow at least 10%, and both menu keys move up. The preceding
+32,868 rail, 1,012 ordinary-phone, 560 handoff, 1,248 geometry/hosting, 466 legacy
+surface, 126 folding/input and 13 startup checks pass. C geometry checks also
+protect menu hit targets from adjacent face/D-pad/stick extents.
+
+Six preview assertions pass. Pictures replay historical owned module state and
+original art in the current native hierarchy. They are not live gameplay or
+physical-device captures; raw images/art/snapshots are excluded from source.
+Native simulator rotation evidence from 3.0.50 remains historical. This release
+does not claim another physical-device or native-simulator acceptance run.
+
+Complete host, Metal, ThreadSanitizer, tools (310, sixteen skipped), iOS (42),
+graphics Python (71, five skipped) and documentation/environment checks pass.
+The unchanged adapter passes 490 ARM64 checks and material tests compare 1,024
+Metal results. Full local game regression compares all 9,766 shaders/interfaces
+and consecutive 90-second baseline/candidate routes. Busy flags are retained;
+these finite observations are not performance improvement or hours-long proofs.
+
+Only companion_layout.h, control_presentation.h, the companion C tests and iOS
+front-end visibility policy change relative to 3.0.50, plus their documentation.
+The view/orientation routines are byte-identical. DmGamepad and Swift sources,
+guest rewrites, shaders, saves, cloud code/paths and persistent resources remain.
+The known reverse-wide cross-fold heading change, intermittent room-loading
+stall and unexplained local frame-time spikes remain open.
+
+Build with Xcode, GAME=01006F8002326000 and user-owned matching NSOs, dialogue-ready
+RomFS, DLC, fonts and offline shaders. Follow the repository instructions or
+adapt build_ios.py's workspace paths. Generate with build_ipa.sh --prepare-xcode,
+then build Release generic/platform=iOS with CURRENT_PROJECT_VERSION=3.0.51 and
+signing disabled. The thin IPA replaces only DmIOS and Info.plist from 3.0.50.
+It retains the resource descriptor used since 3.0.42. Overwrite the same app with
+the same signing identity and completed resource migration; retain its container.
+No user-device signing/installation or user save/cloud mutation is performed.
+
+Owned validation is under validation/panel-controls. Generate ui/project.yml
+with xcodegen and build PhoneDuoUI for Mac Catalyst. run_ui_all.py runs foreground
+routes sequentially, using included empty synthetic art/snapshot fixtures.
+The previous geometry header is included for default-size/menu-position
+comparisons. Preview replay needs user-owned historical data/art supplied via
+DUO_UI_ASSETS. Run guest regression after foreground UI work and heavy builds.
+
+This is complete matching GPL corresponding source with NHSE source, component
+licenses, source backups and a cumulative patch, without a build dependency on
+an older source ZIP. Full archive CRC, manifest hashes and patch reverse checks
+pass. Game binaries/resources/captures, decoded art, saves, keys, raw device/game
+logs and device identifiers are excluded. The real Git index remains unchanged;
+no commit or push is made.

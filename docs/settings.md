@@ -47,6 +47,16 @@ Breath of the Wild renders 1280x720 in handheld mode. Docked it renders its worl
 - **Cost:** more GPU time each frame, which can increase heat on an iPhone. [Breath of the Wild's measurements](https://github.com/seedds/nxnative/blob/b7a5cd43453722d448e07407d88a9c05ed294492/dm/games/01007EF00011E000/README.md#upscaling-current) cover Mac and iPhone; the matching iPhone Standard run and MetalFX's share of the thermal cost remain unmeasured. Nothing changes while the game's picture is as large as the screen. Unsupported devices and sizes use Standard scaling.
 - **On the Mac:** the Mac app has no settings screen; the line `DM_PRESENT_UPSCALE=metalfx` in its `env.txt` turns it on (off by default). It helps in a large window or on a 4K screen.
 
+### Motion smoothing (Apple devices)
+
+The Mac application menu offers **Motion smoothing** for the next launch. It adds intermediate display images to 30 fps gameplay while preserving the game's speed and original rendering. It may increase processing cost and introduce image artifacts; turn it off if those are distracting. Original pictures keep their resolution, while generated pictures use up to 1280 pixels of width. The game counter can still show 30 fps while the actual display updates around 60 times a second. Supported macOS 26 or later systems are required; see [implementation and validation](reference/frame-rate.md#optional-intermediate-display-frames-for-30-fps-motion). `DM_PRESENT_SMOOTH=1` or `0` in the Mac app's environment file overrides the saved choice. Other bundles default off; a package may opt in with `DMFrameSmoothingDefault`.
+
+iPhone/iPad offer the same next-launch switch in **Performance settings**. It defaults off on mobile and requires supported iOS 26 or later hardware. Serious/critical thermal state stops smoothing for the rest of the session and returns to original game presentation. The saved switch is kept for the next launch; cooling alone does not repeatedly restart processing.
+
+The small **Controls/Touch** menu at the upper game corner selects **Direct touch** to hide virtual buttons and release their hit regions. Select **Auto fade** or **Always show** to restore them. Native game touches also keep controls away through a stroke or repeated taps, returning after 1.1 idle seconds. Only interfaces implemented by the game as touch-enabled respond; no system keyboard replaces the embedded keyboard.
+
+Performance settings also offers optional recording, independently of motion smoothing. On iPhone/iPad, the first game picture creates a report under the app's `performance` folder in Files, appending a window every ten seconds for up to thirty minutes. Existing reports can be shared from that settings page; playing for the full thirty minutes is unnecessary. An explicit `DM_ROOT` relocates that folder. Filesystem initialization errors are written to `log.txt`; see the [iOS root initialization fix](reference/frame-rate.md#ios-performance-recording-has-no-writable-root).
+
 ### Game language
 
 The game's own languages. The app was packed with one of them; pick another here without repacking.

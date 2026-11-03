@@ -98,6 +98,20 @@ static void map_add(uint64_t b, uint64_t n, uint64_t src, uint32_t st) {   // ca
 }
 static void map_del(int i) { g_map[i] = g_map[--g_nmap]; }   // caller holds g_map_lock
 
+// Return a retired stack to the reserved address space, without retaining its
+// dirty anonymous backing at every ASLR destination. Mappings never overlap in
+// guest pages; only the two boundary host pages can contain a live 4 KB sibling.
+// Caller holds g_map_lock and has already copied back and removed the mapping.
+static void map_release_stack(uint64_t dst, uint64_t size) {
+    uint64_t pg = (size_t)getpagesize(), mask = pg - 1;
+    uint64_t lo = dst & ~mask, hi = (dst + size + mask) & ~mask;
+    if (map_find(lo, pg)) lo += pg;
+    if (lo < hi && map_find(hi - pg, pg)) hi -= pg;
+    if (lo < hi && mmap((void *)lo, hi - lo, PROT_NONE,
+        MAP_PRIVATE | MAP_ANON | MAP_FIXED, -1, 0) == MAP_FAILED)
+        die("UnmapMemory reserve errno=%d", errno);
+}
+
 // One bit per 4 KB page of the alias region (mapped = 1): Map sets bits, Unmap clears them; returns the number of pages whose state really changed (signed: positive for Map, negative for Unmap)
 static int64_t alias_pages(uint64_t off, uint64_t n, int map) {
     int64_t ch = 0;
@@ -316,7 +330,7 @@ uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
         if (g_flag.svc) LOG("MapMemory %#llx <- %#llx +%#llx", dst, src, size);
         regs[0] = 0; return 0;
     }
-    case 0x05: {  // UnmapMemory(dst, src, size): contents are moved back to the source region; a 16K page may be shared with an adjacent mapping, permissions are not revoked
+    case 0x05: {  // UnmapMemory(dst, src, size): copy back, then release unused destination host pages.
         uint64_t dst = regs[0], src = regs[1], size = regs[2];
         uint32_t result = map_arguments(dst, src, size);
         if (result) { regs[0] = result; return 0; }
@@ -327,6 +341,7 @@ uint64_t svc_dispatch(int num, uint64_t *regs, uint64_t orig_addr) {
         dm_guest_write_prepare((void *)src, size);
         memcpy((void *)src, (void *)dst, size);
         map_del(k - 1);
+        map_release_stack(dst, size);
         pthread_mutex_unlock(&g_map_lock);
         regs[0] = 0; return 0;
     }

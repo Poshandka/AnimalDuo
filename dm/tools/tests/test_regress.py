@@ -281,5 +281,26 @@ class Regress(unittest.TestCase):
             self.assertEqual(finish.call_args.args[0]['games']['game']['status'], 'NEW-FAIL')
 
 
+
+class ProfileCopy(unittest.TestCase):
+    def fixture(self,folder,derived=False):
+        root=Path(folder);gid='0100000000000000';tree=NS(path=root/'tree')
+        game=object.__new__(regress.Game);game.id=gid;game.folder=root/'game';game.build=game.folder/(gid+'_build');game.derived=derived
+        src=(game.build/'profile'if derived else tree.path/'dm/games')/gid;src.mkdir(parents=True)
+        for name,text in [('game.tsv','title\tfixture\n'),('patches.py',"CUTS = {'"+'ab'*16+"': []}\n"),('shader_map.tsv','original\n'),('view.s','owned source\n')]: (src/name).write_text(text)
+        return game,tree,src
+
+    def test_repository_mirror_retains_patch_identity_and_writable_tables(self):
+        with tempfile.TemporaryDirectory()as folder:
+            game,tree,src=self.fixture(folder);dst=game.profile_dir(tree)
+            self.assertTrue((dst/'patches.py').is_symlink());self.assertEqual((dst/'patches.py').resolve(),(src/'patches.py').resolve())
+            (dst/'shader_map.tsv').write_text('generated\n');self.assertEqual((src/'shader_map.tsv').read_text(),'original\n')
+            self.assertEqual(game.profile_dir(tree),dst);self.assertEqual((dst/'view.s').read_bytes(),(src/'view.s').read_bytes())
+
+    def test_derived_profile_keeps_its_independent_patch_file(self):
+        with tempfile.TemporaryDirectory()as folder:
+            game,tree,src=self.fixture(folder,True);dst=game.profile_dir(tree)
+            self.assertFalse((dst/'patches.py').is_symlink());self.assertEqual((dst/'patches.py').read_bytes(),(src/'patches.py').read_bytes())
+
 if __name__ == '__main__':
     unittest.main()

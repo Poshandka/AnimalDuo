@@ -77,7 +77,7 @@ patch_paths = {}
 for path in PATCH_FILES: patch_paths.setdefault(os.path.realpath(path), path)   # repeated roots and symlinks name the same file, not competing build claims
 PATCH_FILES = list(patch_paths.values())
 def load_patches():
-    tables, where = {'CUTS': {}, 'OBS': {}, 'FRAME_STEP': {}, 'MATCH_CUTS': {}}, {}
+    tables, where = {'CUTS': {}, 'OBS': {}, 'FRAME_STEP': {}, 'VIEW': {}, 'MATCH_CUTS': {}}, {}
     for n, path in enumerate(PATCH_FILES):
         spec = importlib.util.spec_from_file_location(f'patches_{n}', path); m = importlib.util.module_from_spec(spec); spec.loader.exec_module(m)
         for kind, table in tables.items():
@@ -1004,6 +1004,16 @@ for off, oid, ow, why in obs:
 FRAME_STEP = PATCHES['FRAME_STEP']
 FS_STATE_OFF = 0
 RENDER_SCALE = 0   # 1 = the build has a render-scale stub (state +0x10): the fixups table says so (RENDER_SCALE), and the iOS launcher offers the setting (dm/games/settings.tsv)
+def registered_site(off, orig):
+    ob = bytes.fromhex(orig)
+    assert IMG[off:off + len(ob)] == ob, f'registered patch original bytes mismatch {off:#x}: {bytes(IMG[off:off + len(ob)]).hex()}'
+    for o in range(off, off + len(ob), 4):
+        assert o not in kinds and not any(seg[0].address <= o < seg[-1].address + 4 for seg in windows), f'registered patch site is a rewrite site {o:#x}'
+def registered_put(off, words, why):
+    old = bytes(IMG[off:off + 4 * len(words)])
+    for i, w in enumerate(words): struct.pack_into('<I', IMG, off + 4 * i, w)
+    cuts.append((off, old.hex(), bytes(IMG[off:off + 4 * len(words)]).hex(), why))
+
 if BUILD_ID in FRAME_STEP and NAME == 'main':
     FS_STATE_OFF = KEY_PAGE_OFF + 0x4000
     if FAR:
@@ -1023,6 +1033,17 @@ if BUILD_ID in FRAME_STEP and NAME == 'main':
 if FS_STATE_OFF:   # the build's stubs (FRAME_STEP of its patches.py)
     fs = types.SimpleNamespace(here=here, emit=emit, site=fs_site, put=fs_put, state=FS_STATE_OFF, render_scale=0)
     FRAME_STEP[BUILD_ID](fs); RENDER_SCALE = fs.render_scale
+
+# Optional build-specific view adapters. Their immutable code uses one small
+# writable state block in verified image padding; the host publishes only the
+# requested aspect. Disabled state always follows the original instructions.
+VIEW_STATE_OFF = 0
+if BUILD_ID in PATCHES['VIEW'] and NAME == 'main':
+    view = types.SimpleNamespace(here=here, emit=emit, site=registered_site, put=registered_put, state=0)
+    PATCHES['VIEW'][BUILD_ID](view)
+    VIEW_STATE_OFF = view.state
+    assert VIEW_STATE_OFF % 16 == 0 and RO_OFF <= VIEW_STATE_OFF and VIEW_STATE_OFF + 64 <= DATA_OFF, 'view state must be in asserted writable image padding'
+    assert IMG[VIEW_STATE_OFF:VIEW_STATE_OFF+8] == b'DMVIEW01', 'view state signature'
 
 # ---- Spin waits (every module) ----
 # A guest loop that polls memory until another thread changes it fills only its own core on the Switch, where any higher-priority thread pinned there preempts it, so the
@@ -1331,6 +1352,7 @@ with open(P('fixups.tsv'), 'w') as f:
     for k in KEY_INDEX: f.write(f'# KEY_{k}_IDX\t{KEY_INDEX[k]}\n')
     if FS_STATE_OFF: f.write(f'# FPS_STATE_OFF\t{FS_STATE_OFF:#x}\n')   # frame step state page (FRAME_STEP): the loader writes the target fps there
     if RENDER_SCALE: f.write('# RENDER_SCALE\t1\n')   # a render-scale stub reads state +0x10 (the loader ignores the key; dm/games/settings.py offers the setting by it)
+    if VIEW_STATE_OFF: f.write(f'# VIEW_STATE_OFF\t{VIEW_STATE_OFF:#x}\n')
     f.write(f'# BUILD_ID\t{BUILD_ID}\n')   # the host identifies the build by it: features with hard-coded addresses only run on the build they belong to
 with open(P('gates.tsv'), 'w') as f:
     for ret, k, arg, orig in gates: f.write(f'{ret:#x}\t{k}\t{arg}\t{orig:#x}\n')

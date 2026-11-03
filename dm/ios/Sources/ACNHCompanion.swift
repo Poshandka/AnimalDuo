@@ -156,7 +156,7 @@ public func dmCompanionViewController() -> UnsafeMutableRawPointer {
     let model=CompanionModel();activeCompanionModel=model
     model.uiActivity={dm_companion_ui_activity(Int32($0),$1 ? 1:0)}
     model.updateNativeActivity(force:true)
-    let controller = UIHostingController(rootView: ACNHCompanionView(model: model))
+    let controller = GameHostingController(rootView: ACNHCompanionView(model: model))
     controller.view.clipsToBounds = true
     return Unmanaged.passRetained(controller).toOpaque()
 }

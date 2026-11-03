@@ -50,7 +50,7 @@ private struct TouchControlPreview:UIViewRepresentable {
 }
 struct TouchControlsEditor:View {
     @Environment(\.dismiss) private var dismiss
-    @State private var portrait=UIDevice.current.userInterfaceIdiom == .pad
+    @State private var portrait=DMCompanion.shared().supported
     @State private var portraitProfile=TouchControlProfile.load(true)
     @State private var landscapeProfile=TouchControlProfile.load(false)
     @State private var handles:[TouchControlHandle]=[]
@@ -62,7 +62,7 @@ struct TouchControlsEditor:View {
                 VStack(spacing:16) {
                     Picker(companionText("Layout"),selection:$portrait){
                         Text(companionText("Landscape")).tag(false)
-                        if UIDevice.current.userInterfaceIdiom == .pad{Text(companionText("Portrait controls")).tag(true)}
+                        if DMCompanion.shared().supported{Text(companionText("Portrait controls")).tag(true)}
                     }.pickerStyle(.segmented)
                     GeometryReader { geometry in
                         TouchControlPreview(portrait:portrait,profile:profile.wrappedValue,handles:$handles)

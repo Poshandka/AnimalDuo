@@ -196,6 +196,13 @@ class Game:
         key = digest(sorted(p for p in src.glob('*') if p.is_file()))[:16]
         dst = game_root(self) / 'profiles' / key / self.id
         if not (dst / 'game.tsv').is_file(): shutil.copytree(src, dst)
+        # Shader tools need writable tables, but registered code is immutable.
+        # Keep the repository patch file's identity: loading an independent copy
+        # through DM_GAMES_DIR would claim the same build twice in the rewriter.
+        if not self.derived and (src / 'patches.py').is_file():
+            mirror = dst / 'patches.py'; original = (src / 'patches.py').resolve()
+            if not mirror.is_symlink() or mirror.resolve() != original:
+                mirror.unlink(missing_ok=True); mirror.symlink_to(original)
         return dst
 
     def shader_roots(self):

@@ -21,11 +21,19 @@ static int hid_usleep(useconds_t usec) { (void)usec; if (script_hold) script_hol
 int dm_opmode(void) { return g_mode; }
 uint64_t guest_ns(void) { return 1000000000ull; }
 uint64_t now_ns(void) { return 1000000000ull; }
-uint64_t dm_guest_frame(void) { return 0; }
-static int touch_calls,touch_clears;
-void dm_touch_set(const dm_touch *t, int n) { if(!t && !n)touch_clears++; }
-int touch_fill_n(void *out, int max, uint64_t now) { (void)max; (void)now; touch_calls++;memset(out,0,16);((int32_t*)out)[2]=1;return 1; }
-int gesture_fill(void *out, int n, uint64_t now) { (void)out; (void)n; (void)now; return 0; }
+static uint64_t test_touch_frame;
+uint64_t dm_guest_frame(void) { return test_touch_frame; }
+static int touch_calls,touch_clears,gesture_calls;
+#define dm_touch_set raw_touch_set
+#define touch_fill_n raw_touch_fill_n
+#define gesture_fill raw_gesture_fill
+#include "../hle_touch.c"
+#undef dm_touch_set
+#undef touch_fill_n
+#undef gesture_fill
+void dm_touch_set(const dm_touch *t, int n) { if(!t && !n)touch_clears++;raw_touch_set(t,n); }
+int touch_fill_n(void *out, int max, uint64_t now) { touch_calls++;return raw_touch_fill_n(out,max,now); }
+int gesture_fill(void *out, int n, uint64_t now) { gesture_calls++;return raw_gesture_fill(out,n,now); }
 void dm_gfx_shot_at(long frame, const char *path) { (void)frame; (void)path; }
 void hle_bind_system_event(void *g, int autoclear) { (void)g; (void)autoclear; }
 void hle_signal_system_event(void *g) { g_signalled = g; g_signals++; }
@@ -38,6 +46,9 @@ void dm_ctl_cvar_i32(uint64_t off, int32_t v) { (void)off; (void)v; }
 void dm_ctl_cvar_f32(uint64_t off, float v) { (void)off; (void)v; }
 void dm_gfx_texdump_next(const char *path) { (void)path; }
 void dm_gfx_passdump_next(long n) { (void)n; }
+void dm_view_target(double aspect) { (void)aspect; }
+int dm_view_touch(float *x,float *y) { (void)x;(void)y;return 1; }
+double dm_view_aspect(void) { return 0; }
 
 static uint64_t buttons_of(uint32_t id, uint32_t style) { NpadState s; fill(&s, id, style); return s.attributes ? s.buttons & 0xffff : 0; }
 static int32_t lx_of(uint32_t id) { NpadState s; fill(&s, id, STYLE_FULLKEY); return s.lx; }
@@ -265,13 +276,23 @@ static void t_companion(void) {
 }
 
 static void t_native_touch(void) {
-    int64_t state[64]={0};g_mode=1;
+    int64_t state[82]={0};g_mode=1;
     touch_read(state,16);CHECK(!touch_calls && ((int32_t*)state)[2]==0,"docked mode has no implicit touch screen");
-    dm_touch_surface_available(1);touch_read(state,16);
+    CHECK(!h_hid_Gestures(state,1) && !gesture_calls,"docked mode has no implicit gestures");
+    dm_touch_surface_available(1);dm_touch point={0,.25f,.75f};dm_touch_set(&point,1);touch_read(state,16);
     CHECK(touch_calls==1 && ((int32_t*)state)[2]==1 && g_mode==1,"native tablet surface is available without changing docked mode");
+    CHECK(((int32_t*)state)[8]==320 && ((int32_t*)state)[9]==540,"the SDK receives the actual panel coordinates");
+    touch_read(state,16);CHECK(touch_calls==1 && ((uint32_t*)state)[6]==1,"a second reader sees the same Start edge");
+    dm_touch_set(NULL,0);
+    test_touch_frame=1;touch_read(state,1);
+    CHECK(touch_calls==2 && ((uint32_t*)state)[6]==2,"a new frame samples the next edge with a smaller output capacity");
+    touch_read(state,16);CHECK(touch_calls==2 && ((uint32_t*)state)[6]==2,"End is shared with another reader in the same frame");
+    CHECK(h_hid_Gestures(state,1)==1 && gesture_calls==1 && g_mode==1,"native surface supplies gestures without changing docked mode");
     dm_touch_surface_available(0);touch_read(state,16);
-    CHECK(touch_clears==1 && touch_calls==1 && ((int32_t*)state)[2]==0,"detaching the native surface releases all touches");
-    g_mode=0;touch_read(state,16);CHECK(touch_calls==2,"handheld touch is preserved without an override");g_mode=1;
+    CHECK(touch_clears==2 && touch_calls==2 && ((int32_t*)state)[2]==0,"detaching the native surface releases all touches");
+    CHECK(!h_hid_Gestures(state,1) && gesture_calls==1,"detaching the native surface also disconnects gestures");
+    g_mode=0;touch_read(state,16);CHECK(touch_calls==3,"handheld touch is preserved without an override");g_mode=1;
+    g_mode=0;CHECK(h_hid_Gestures(state,1)==1 && gesture_calls==2,"handheld gestures are preserved");g_mode=1;
 }
 int main(void) {
     CHECK(setenv("DM_RUMBLE_LOG", "1", 1) == 0, "enable rumble diagnostics");

@@ -1,5 +1,6 @@
 // iOS App entry: set the environment (game files, saves, shader libraries), write the host log to Documents/log.txt, create the window (front_ios.m), then run the host's dm_main on a big-stack thread.
-// The game files (RomFS) ship inside the App at <App>/romfs; Documents/romfs placed through the Files app is also accepted (lets you swap them without reinstalling).
+// Legacy RomFS lives in <App>/romfs. Resource-set packages install immutable assets
+// once in Application Support; Documents/romfs remains an explicit override.
 #import <UIKit/UIKit.h>
 #include <pthread.h>
 #include <signal.h>
@@ -7,17 +8,27 @@
 #include <unistd.h>
 #include "game_profile.h"   // game profile constants (the RomFS marker path)
 #include "front.h"
+#include "../../gfx/nvn/dmsh_chain.h"
+#include "ResourceStore.inc"
+#include "ResourceInstallUI.inc"
 
 int dm_main(int argc, char **argv);   // dm/host/main.c compiled in with -Dmain=dm_main
 UIViewController *front_ios_root(void);
 void front_ios_focus_event(int ev);
+void front_ios_geometry_changed(void);
 
 static char *g_argv[4]; static int g_argc;
+static DMResourceStore *g_resources;
+static int boot_game_paths(void);
+static NSString *game_resource(NSString *path){
+    NSURL *base=g_resources?g_resources.directory:[NSURL fileURLWithPath:NSBundle.mainBundle.resourcePath isDirectory:YES];
+    return [base URLByAppendingPathComponent:path].path;
+}
 
 static NSString *romfs_locate(void) {
     NSFileManager *fm = NSFileManager.defaultManager;
     NSString *doc = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES)[0];
-    for (NSString *d in @[[doc stringByAppendingPathComponent:@"romfs"], [NSBundle.mainBundle.resourcePath stringByAppendingPathComponent:@"romfs"]])
+    for (NSString *d in @[[doc stringByAppendingPathComponent:@"romfs"], game_resource(@"romfs")])
         if ([fm fileExistsAtPath:[d stringByAppendingPathComponent:@DM_GAME_ROMFS_MARKER]]) return d;   // only a directory containing the game profile's romfs_marker path counts (Mario: System/Resource, the resource size table)
     return nil;
 }
@@ -49,12 +60,30 @@ static int boot_env(void) {
         }
     }
     setenv("DM_ENV_FILE_KEYS", [from_file componentsJoinedByString:@" "].UTF8String, 1);   // the launcher keeps what an env file set (Launcher.swift)
+    // Shared diagnostics and their launcher browser need the same writable root
+    // before preload or UIKit starts. Explicit environment-file roots still win.
+    setenv("DM_ROOT", doc.fileSystemRepresentation, 0);
+    fprintf(stderr, "boot: writable app data %s\n", getenv("DM_ROOT"));
     front_hud_env();   // before the early loading below can make a device
     // Game language (nn::oe::GetDesiredLanguage, hle_oe.c): the one the IPA was packed with (the NSP script's LANGUAGE / --language → DMLanguage in Info.plist), unless an env file sets DM_LANG
     // (or the launcher, which replaces this default before the game starts)
     NSString *lang = [NSBundle.mainBundle objectForInfoDictionaryKey:@"DMLanguage"];
     if (!getenv("DM_LANG") && [lang isKindOfClass:NSString.class] && lang.length) setenv("DM_LANG", lang.UTF8String, 0);
     fprintf(stderr, "boot: game language %s\n", getenv("DM_LANG") ?: "en-US");
+    if([fm fileExistsAtPath:[res stringByAppendingPathComponent:@"dm/resource-set.plist"]]){
+        NSString *title=nil;
+        #ifdef DM_GAME_PROGRAM_ID
+        title=[NSString stringWithFormat:@"%016llX",(unsigned long long)DM_GAME_PROGRAM_ID];
+        #endif
+        NSURL *support=[NSURL fileURLWithPath:NSSearchPathForDirectoriesInDomains(NSApplicationSupportDirectory,NSUserDomainMask,YES)[0] isDirectory:YES];
+        g_resources=[[DMResourceStore alloc]initWithBundle:[NSURL fileURLWithPath:res isDirectory:YES] support:support title:title version:[NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"]?:@"unknown" chain:@DMSH_CHAIN];
+        if(![g_resources ready:nil]){fprintf(stderr,"resources: persistent setup required before guest preload\n");return 0;}
+        fprintf(stderr,"resources: matching persistent set ready; bundle resources are not required\n");
+    }
+    return boot_game_paths();
+}
+static int boot_game_paths(void){
+    NSFileManager *fm=NSFileManager.defaultManager;NSString *doc=NSSearchPathForDirectoriesInDomains(NSDocumentDirectory,NSUserDomainMask,YES)[0],*res=NSBundle.mainBundle.resourcePath;
     NSString *romfs = romfs_locate();
     if (!romfs) { fprintf(stderr, "boot: game files not found (<App>/romfs or Documents/romfs)\n"); return 0; }
     fprintf(stderr, "boot: game files %s\n", romfs.fileSystemRepresentation);
@@ -63,11 +92,11 @@ static int boot_env(void) {
     setenv("DM_TEMP", [doc stringByAppendingPathComponent:@"temp"].fileSystemRepresentation, 0);
     NSString *dm = [res stringByAppendingPathComponent:@"dm"];
     setenv("DM_NVN_SHMAP", [dm stringByAppendingPathComponent:@"shader_map.tsv"].fileSystemRepresentation, 0);
-    setenv("DM_MSL_DIR", [res stringByAppendingPathComponent:@"msl"].fileSystemRepresentation, 0);
-    setenv("DM_FONT_DIR", [dm stringByAppendingPathComponent:@"font"].fileSystemRepresentation, 0);   // Shared-font stand-ins (standard.ttf / nintendo_ext.ttf): iOS lacks the macOS font path
-    NSString *aoc = [res stringByAppendingPathComponent:@"aoc"];   // add-on content: build_ipa.sh puts the RomFS extracted from the player's DLC NSPs at <App>/aoc/<index>/
+    setenv("DM_MSL_DIR", game_resource(@"msl").fileSystemRepresentation, 0);
+    setenv("DM_FONT_DIR", game_resource(@"dm/font").fileSystemRepresentation, 0);   // Shared-font stand-ins (standard.ttf / nintendo_ext.ttf): iOS lacks the macOS font path
+    NSString *aoc = game_resource(@"aoc");   // add-on content persists with the resource set
     if ([fm fileExistsAtPath:aoc]) setenv("DM_AOC_DIR", aoc.fileSystemRepresentation, 0);
-    NSString *pso = [res stringByAppendingPathComponent:@"pso"];   // the pipeline archive made offline (build_ipa.sh, dm/gfx/tools/pso_offline.py): the shader pairs' bases, which the device then does not build
+    NSString *pso = game_resource(@"pso");   // offline pipeline bases persist with the resource set
     if ([fm fileExistsAtPath:pso]) setenv("DM_PSO_BUNDLE", pso.fileSystemRepresentation, 0);
     chdir(doc.fileSystemRepresentation);
     g_argv[0] = strdup("dmhost"); g_argv[1] = strdup(dm.fileSystemRepresentation); g_argc = 2;
@@ -108,10 +137,20 @@ int front_ios_boot_ok(void) { return g_boot_ok; }
 @property (strong, nonatomic) UIWindow *window;
 @end
 @implementation SceneDelegate
+- (UIInterfaceOrientationMask)supportedInterfaceOrientationsForWindowScene:(UIWindowScene *)windowScene {
+    (void)windowScene;UIInterfaceOrientationMask front_ios_orientation_mask(void);return front_ios_orientation_mask();
+}
 - (void)scene:(UIScene *)scene willConnectToSession:(UISceneSession *)session options:(UISceneConnectionOptions *)o {
     self.window = [[UIWindow alloc] initWithWindowScene:(UIWindowScene *)scene];
-    self.window.rootViewController = front_ios_root();
+    if(g_resources && ![g_resources ready:nil]){
+        DMResourceInstallVC *installer=[DMResourceInstallVC new];installer.store=g_resources;__weak SceneDelegate *weak=self;
+        installer.ready=^{SceneDelegate *owner=weak;if(!owner)return;g_boot_ok=boot_game_paths();owner.window.rootViewController=front_ios_root();};
+        self.window.rootViewController=installer;
+    }else self.window.rootViewController = front_ios_root();
     [self.window makeKeyAndVisible];
+}
+- (void)windowScene:(UIWindowScene *)windowScene didUpdateEffectiveGeometry:(UIWindowSceneGeometry *)previousEffectiveGeometry {
+    (void)windowScene;(void)previousEffectiveGeometry;front_ios_geometry_changed();
 }
 - (void)sceneWillResignActive:(UIScene *)s { front_ios_focus_event(0); }
 - (void)sceneDidEnterBackground:(UIScene *)s { front_ios_focus_event(1); }

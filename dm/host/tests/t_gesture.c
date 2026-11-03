@@ -7,6 +7,7 @@
 typedef struct { uint32_t id; float x, y; } dm_touch;
 void dm_touch_set(const dm_touch *t, int n);
 int gesture_fill(void *out, int n, uint64_t now_ns);
+int dm_view_touch(float *x,float *y) { (void)x;(void)y;return 1; }
 typedef struct { int64_t samp, ctx; int32_t type, dir, x, y, dx, dy; float vx, vy; uint32_t attr; float scale, rot; int32_t npt, pt[4][2]; } gesture_state;
 enum { IDLE, COMPLETE, CANCEL, TOUCH, PRESS, TAP, PAN, SWIPE, PINCH, ROTATE };
 enum { NEW = 1u << 4, DOUBLE = 1u << 8 };

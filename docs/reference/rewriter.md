@@ -4,6 +4,14 @@ The NSO rewriter (`dm/tools/patch_nso.py`) and its per-build tables (`dm/tools/s
 
 ## Patches across updates
 
+### Build-registered adaptive view adapters
+
+- **Symptom:** filling a nonstandard display stretches the original game image, or adapting only its world camera leaves cached UI projections, clipping and touch coordinates inconsistent.
+- **Cause:** the native presentation layer cannot recover scene coverage that a guest camera never rendered. Camera layout and fixed field creation ranges are properties of each game build.
+- **Fix:** an optional `VIEW` callback in the selected profile appends owned ARM64 routines after the general rewrite. Every original instruction and the 64-byte `DMVIEW01` state block are asserted before modification. `VIEW_STATE_OFF` metadata lets the host validate and publish a finite requested aspect and display capability without executable writes. An optional canonical UI aspect at state `+0x14` lets native HID map a profile's fixed screen hit rectangles; zero preserves existing input. The reserved state tail can publish a stable original-present counter pointer and short-lived native-UI frame stamps; see [native touch context](services.md#native-touch-context-and-screen-edge-ui-composition). The callback is build-ID gated, distinct from shader translation, and cannot replace general rewrite sites. `gen_view_stubs.py` retains symbolic B/BL, ADRP and ADD relocations; `nso_asm.relocated_words` checks instruction kinds and relocation reach. Regenerate the marked profile data after editing its assembly. The iOS front end uses the same full viewport for presentation and inverse native touch. A profile without a registered adapter retains fitted presentation.
+- **Found on:** [Animal Crossing: New Horizons](../../dm/games/01006F8002326000/README.md#folding-display-adaptive-view), with game-specific projection, cache, unprojection, capture/scissor and field-range routines. Original camera parameters remain intact so their getter values cannot leak an already adapted aspect into copied cameras. A game UI that bypasses projection objects through a retained asynchronous snapshot needs its own verified screen-projection derivation at the getter. The perspective vtable is relocated data, not read-only data: exact class identity allows cache invalidation without a dangling-pointer registry or assumptions about unrelated objects.
+- **Limits:** this mechanism registers verified code, not automatic camera support for unknown titles or updates. The state must be in proven unused module padding. Disabled adapters follow original camera instructions; folding-capable field allocation may reserve its verified expansion capacity before a later mode change.
+
 ### Function-matched cuts for unregistered builds
 
 - **Symptom:** an updated game loses a needed cut because its NSO build ID changed, although the relevant code still matches a verified version; the rewriter reports `[RED] function patch ... skipped` when that match cannot be established.
@@ -266,3 +274,11 @@ To enroll a cut for any game's own module:
 ## Checking a rewriter change
 
 Rewrite every extracted module of every title with the old and the new `patch_nso.py` and compare all outputs; only `build_src.sha256` (the rewriter's own hash) may differ for titles the change is not meant for.
+
+
+### Duplicate patch claims from a regression profile mirror
+
+- **Symptom:** the regression harness's rewrite reports the same registered build in its repository profile and in a copied `DM_GAMES_DIR` profile.
+- **Cause:** the harness copies profiles so shader tools can generate writable tables. Copying an immutable `patches.py` also creates a second file identity, which correctly violates the rewriter's rule against competing build claims.
+- **Fix:** repository profile mirrors symlink their patch file to its immutable source tree; generated shader tables remain independent writable copies. Real external/derived profiles retain their independent files and duplicate-claim protection. The rewriter's registry rules are unchanged.
+- **Found on:** [Animal Crossing: New Horizons](../../dm/games/01006F8002326000/README.md#folding-display-adaptive-view), when its first registered camera adapter made a full harness rewrite necessary. Synthetic tests cover patch identity, writable-table isolation and external-profile independence.

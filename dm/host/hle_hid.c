@@ -157,6 +157,7 @@ static void *ctl_main(void *arg) {
                 if (!strncmp(line, "cvari ", 6)) { void dm_ctl_cvar_i32(uint64_t off, int32_t v); char *e2; uint64_t off = strtoull(line + 6, &e2, 16); dm_ctl_cvar_i32(off, (int32_t)strtol(e2, NULL, 0)); continue; }
                 if (!strncmp(line, "cvarf ", 6)) { void dm_ctl_cvar_f32(uint64_t off, float v); char *e2; uint64_t off = strtoull(line + 6, &e2, 16); dm_ctl_cvar_f32(off, strtof(e2, NULL)); continue; }
                 if (!strncmp(line, "env ", 4)) { char *eq = strchr(line + 4, '='); if (eq) { *eq = 0; setenv(line + 4, eq + 1, 1); LOG("DM_CTL: env %s=%s", line + 4, eq + 1); } continue; }
+                if (!strncmp(line, "view ", 5)) { dm_view_target(strtod(line+5,NULL)); LOG("DM_CTL: view aspect %.6f",dm_view_aspect());continue; }
                 if (!strncmp(line, "texdump ", 8)) { void dm_gfx_texdump_next(const char *path); dm_gfx_texdump_next(line + 8); LOG("DM_CTL: colour targets of the next frame → %s (as DM_NVN_TEXDUMP)", line + 8); continue; }
                 if (!strncmp(line, "passdump ", 9)) { void dm_gfx_passdump_next(long n); dm_gfx_passdump_next(atol(line + 9)); LOG("DM_CTL: passes of the next %ld frames (as DM_NVN_PASSDUMP)", atol(line + 9)); continue; }
                 if (!strncmp(line, "drag ", 5)) {   // one finger, a step every 8 ms
@@ -478,10 +479,33 @@ HLE_FORCE("_ZN2nn3hid28ShowControllerFirmwareUpdateERKNS0_27ControllerFirmwareUp
 // without checking the mode. Console mode stays empty unless the front end explicitly attaches a native touch surface. This lets a tablet expose its real touch screen without changing the render profile.
 int touch_fill_n(void *out, int max, uint64_t now_ns);
 static _Atomic int g_native_touch_surface;
-void dm_touch_surface_available(int available) { atomic_store(&g_native_touch_surface,available!=0);if(!available)dm_touch_set(NULL,0); }
+static pthread_mutex_t g_touch_sample_mu=PTHREAD_MUTEX_INITIALIZER;
+static uint8_t g_touch_sample[0x290];
+static uint64_t g_touch_sample_frame,g_touch_sample_boot;
+static int g_touch_sample_valid;
+void dm_touch_surface_available(int available) {
+    pthread_mutex_lock(&g_touch_sample_mu);
+    atomic_store(&g_native_touch_surface,available!=0);g_touch_sample_valid=0;
+    if(!available)dm_touch_set(NULL,0);
+    pthread_mutex_unlock(&g_touch_sample_mu);
+}
+static int touch_available(void) { return dm_opmode()==0 || atomic_load(&g_native_touch_surface); }
 static void touch_read(void *s, int n) {
-    if (dm_opmode() == 0 || atomic_load(&g_native_touch_surface)) { touch_fill_n(s, n, now_ns()); return; }
+    pthread_mutex_lock(&g_touch_sample_mu);
+    if (touch_available()) {
+        // SDK reads copy the latest HID sample; they do not consume its edges.
+        // The game's input manager and its own keyboard may both read in one
+        // frame. Sampling separately here let the first reader steal Start/End.
+        uint64_t frame=dm_guest_frame(),now=now_ns(),boot=frame ? 0:now/8333333;
+        if(!g_touch_sample_valid || frame!=g_touch_sample_frame || boot!=g_touch_sample_boot){
+            touch_fill_n(g_touch_sample,16,now);g_touch_sample_frame=frame;g_touch_sample_boot=boot;g_touch_sample_valid=1;
+        }
+        memcpy(s,g_touch_sample,0x10+0x28*(size_t)n);
+        if(((int32_t*)s)[2]>n)((int32_t*)s)[2]=n;
+        pthread_mutex_unlock(&g_touch_sample_mu);return;
+    }
     int64_t *p = s; p[0] = atomic_fetch_add(&g_sampling, 1) + 1; ((int32_t *)s)[2] = 0; ((int32_t *)s)[3] = 0;
+    pthread_mutex_unlock(&g_touch_sample_mu);
 }
 HLE_FORCE("_ZN2nn3hid21InitializeTouchScreenEv", "connect to the hid touch screen; the host takes touch points from the front end", void, h_hid_InitTouch, void) {}
 // SDK 18 overload with two ints (Super Mario Galaxy); the SDK's own one opens the hid service and aborts in sm::Initialize
@@ -490,11 +514,12 @@ HLE_FORCE("_ZN2nn3hid21InitializeTouchScreenEii", "connect to the hid touch scre
     HLE_FORCE("_ZN2nn3hid19GetTouchScreenStateILm" #N "EEEvPNS0_16TouchScreenStateIXT_EEE", "touch screen current state (handheld or explicitly attached native touch surface)", void, h_hid_Touch1_##N, void *s) { touch_read(s, N); } \
     HLE_FORCE("_ZN2nn3hid20GetTouchScreenStatesILm" #N "EEEiPNS0_16TouchScreenStateIXT_EEEi", "touch screen states: 1 entry (handheld or explicitly attached native touch surface)", int, h_hid_TouchN_##N, void *s, int n) { if (n <= 0) return 0; touch_read(s, N); return 1; }
 TOUCH(1) TOUCH(2) TOUCH(3) TOUCH(4) TOUCH(5) TOUCH(6) TOUCH(7) TOUCH(8) TOUCH(9) TOUCH(10) TOUCH(11) TOUCH(12) TOUCH(13) TOUCH(14) TOUCH(15) TOUCH(16)
-// Gestures: recognized from the same touch points (hle_touch.c gesture_fill), so only in handheld mode too
+// Gestures follow the same attached surface as raw touches, including a native
+// iPhone/iPad touchscreen while the game retains its console render profile.
 int gesture_fill(void *out, int n, uint64_t now_ns);
 HLE_FORCE("_ZN2nn3hid17InitializeGestureEv", "connect to the hid gesture recognizer; the host recognizes gestures from the touch points", void, h_hid_InitGesture, void) {}
-HLE_FORCE("_ZN2nn3hid16GetGestureStatesEPNS0_12GestureStateEi", "gesture states, newest first (handheld mode: recognized from the touch points; console mode: none)", int, h_hid_Gestures, void *out, int n) {
-    return dm_opmode() == 0 ? gesture_fill(out, n, now_ns()) : 0;
+HLE_FORCE("_ZN2nn3hid16GetGestureStatesEPNS0_12GestureStateEi", "gesture states, newest first (handheld or explicitly attached native touch surface)", int, h_hid_Gestures, void *out, int n) {
+    return touch_available() ? gesture_fill(out, n, now_ns()) : 0;
 }
 
 // Six-axis details: the current state, at rest unless shaking, fusion off

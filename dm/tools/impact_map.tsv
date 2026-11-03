@@ -104,3 +104,11 @@ dm/third_party/eden_duo/*	api:nvn	native companion provider selected by the Anim
 dm/third_party/zstd/*	api:nvn	Zstandard decompression for companion assets
 dm/tools/env_switches.py	-	environment-switch documentation scanner
 dm/host/control_presentation.h	present:*	virtual controller visibility timing
+dm/host/hle_view.c	present:*	optional build-registered adaptive camera state
+dm/host/hle_touch.c	hle:*TouchScreen*	native touchscreen coordinates and coherent SDK samples
+dm/host/hle_touch.c	hle:*Gesture*	gesture samples derived from the native touchscreen
+dm/host/present_layout.h	present:*	shared image framing and inverse touchscreen mapping
+dm/tools/gen_view_stubs.py	*:*	owned build-registered ARM64 adapter generation
+dm/tools/nso_asm.py	*:*	ARM64 rewriter instruction encoders and relocations
+dm/host/performance_apple.m	present:*	bounded Apple presentation and memory diagnostics
+scripts/build_acnh_starter_dialogue.py	*:*	optional Animal Crossing starter-dialogue asset preparation

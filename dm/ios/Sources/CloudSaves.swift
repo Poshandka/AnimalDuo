@@ -30,6 +30,7 @@ struct LocalCheckpoint:Identifiable {let id,name,date,kind,token:String}
     var configured: Bool { status["configured"] as? Bool == true }
     var needsAccess: Bool { status["needsAccess"] as? Bool == true }
     var folder: String { status["folder"] as? String ?? "" }
+    var checkpointFolder: String { status["checkpointFolder"] as? String ?? "" }
     var waitingForPlay: Bool { pendingPlay != nil }
     init() { refreshStatus() }
     private func consumeCenter(_ value:[AnyHashable:Any]?) {
@@ -116,7 +117,8 @@ struct LocalCheckpoint:Identifiable {let id,name,date,kind,token:String}
     }
     func useChoice(_ id: String) {
         let token = self.token
-        work({ try self.engine.prepareChoice(id, token: token); return nil }) { _ in
+        work({ try self.engine.prepareChoice(id, token: token); return try self.engine.saveCenter() }) { value in
+            self.consumeCenter(value)
             self.choices = []; self.conflict = false
             if let play = self.pendingPlay { self.pendingPlay = nil; self.engine.beginSession(); play() }
         }
@@ -135,6 +137,7 @@ struct CloudSaves: View {
                 Section {
                     Text(cloudText("Share one complete island between iPad, iPhone and Mac. Choose an iCloud Drive folder once on each device."))
                     if model.configured { LabeledContent(cloudText("Sync folder"), value: model.folder) }
+                    if model.configured && !model.checkpointFolder.isEmpty { LabeledContent(cloudText("Checkpoint folder"), value: model.checkpointFolder) }
                     Button(cloudText("Choose iCloud folder")) { model.choosingFolder = true }.disabled(model.busy)
                     if model.configured {
                         Button(cloudText("Sync now")) { model.synchronize() }.disabled(model.busy)
@@ -142,6 +145,7 @@ struct CloudSaves: View {
                     }
                 } footer: {
                     Text(cloudText("Game saves stay local while playing. Each successful save sends a complete checkpoint to the selected folder. Three versions per device are kept."))
+                    Text(cloudText("Checkpoints are .nxsave and .nxmeta files in the checkpoint folder. Original main.dat files are not overwritten."))
                 }
                 Section {
                     if model.busy { ProgressView(cloudText(model.message)) }
@@ -236,6 +240,7 @@ private struct LocalSaveCenterSections:View {
             }
             Section {
                 LabeledContent(cloudText("Last folder publication"),value:date(model.center["publishedAt"] as? String ?? ""))
+                if model.configured { LabeledContent(cloudText("Current save in folder"),value:cloudText(model.center["folderMatchesLocal"] as? Bool==true ? "Verified":"Not verified")) }
                 Text(cloudText(model.center["uploadState"] as? String ?? "No checkpoint published yet"))
                 Button(cloudText("Refresh save status")){model.refreshCenter()}.disabled(model.busy)
             } header: {Text(cloudText("Cross-device handoff"))} footer: {Text(cloudText("Writing a checkpoint to the folder is separate from uploading it. An uploaded file does not confirm that another device has read it."))}

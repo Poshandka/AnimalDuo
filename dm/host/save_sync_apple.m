@@ -114,6 +114,7 @@ static BOOL validateRecord(NSDictionary *r, NSString *title, NSString *version) 
 @property NSFileCoordinator *coordinator;
 @property BOOL active, started, accessing, processing;
 @property NSURL *pending;
+- (BOOL)verifyPublishedData:(NSData *)data atURL:(NSURL *)url error:(NSError **)error;
 @end
 @implementation DMSaveSync
 @synthesize message=_message;
@@ -163,7 +164,7 @@ static BOOL validateRecord(NSDictionary *r, NSString *title, NSString *version) 
 }
 - (void)dealloc { if (_accessing) [_folder stopAccessingSecurityScopedResource]; }
 - (NSDictionary *)status {
-    NSURL *folder=self.folder;return @{@"configured":@(folder!=nil),@"needsAccess":@(folder==nil && [NSUserDefaults.standardUserDefaults dataForKey:self.bookmarkKey]!=nil),@"active":@(self.active),@"playing":@(self.started),@"folder":folder.lastPathComponent ?: @"",@"message":self.message ?: @""};
+    NSURL *folder=self.folder;return @{@"configured":@(folder!=nil),@"needsAccess":@(folder==nil && [NSUserDefaults.standardUserDefaults dataForKey:self.bookmarkKey]!=nil),@"active":@(self.active),@"playing":@(self.started),@"folder":folder.lastPathComponent ?: @"",@"checkpointFolder":[@"nxnative-" stringByAppendingString:self.title],@"message":self.message ?: @""};
 }
 - (void)setMessage:(NSString *)message { @synchronized(self) { _message=[message copy]; } fprintf(stderr,"save sync: %s\n",message.UTF8String); }
 - (NSString *)message { @synchronized(self) { return _message; } }
@@ -240,7 +241,7 @@ static BOOL validateRecord(NSDictionary *r, NSString *title, NSString *version) 
         NSData *data=[NSData dataWithContentsOfURL:file options:0 error:&inner];if(!data)return;
         record=[NSPropertyListSerialization propertyListWithData:data options:NSPropertyListImmutable format:nil error:&inner];
         if(!validateRecord(record,self.title,self.version) || ![record[@"recordHash"]isEqual:header[@"recordHash"]]){record=nil;inner=syncError(@"A cloud checkpoint is incomplete, damaged, or from a different game version.");}
-    }];self.coordinator=nil;if(inner){if(error)*error=inner;return nil;}return record;
+    }];self.coordinator=nil;if(inner){if(error)*error=inner;return nil;}if(error && *error)return nil;return record;
 }
 - (NSDictionary *)plan:(NSError **)error {
     // A newly installed device has never mounted its local save. Create the
@@ -291,7 +292,7 @@ static BOOL validateRecord(NSDictionary *r, NSString *title, NSString *version) 
     NSURL *outbox=[self.cache URLByAppendingPathComponent:@"outbox.nxsave"];
     if(![data writeToURL:outbox options:NSDataWritingAtomic error:error])return NO;
     if(![self saveState:@{@"clock":record[@"clock"],@"hash":record[@"hash"]} error:error])return NO;
-    NSFileCoordinator *c=[[NSFileCoordinator alloc] initWithFilePresenter:nil];self.coordinator=c;__block NSError *inner;
+    NSFileCoordinator *c=[[NSFileCoordinator alloc] initWithFilePresenter:nil];self.coordinator=c;__block NSError *inner;__block BOOL verified=NO;
     [c coordinateWritingItemAtURL:self.folder options:0 error:error byAccessor:^(NSURL *folder) {
         NSURL *root=[folder URLByAppendingPathComponent:[@"nxnative-" stringByAppendingString:self.title] isDirectory:YES];
         NSFileManager *fm=NSFileManager.defaultManager;
@@ -299,11 +300,14 @@ static BOOL validateRecord(NSDictionary *r, NSString *title, NSString *version) 
         if(![fm createDirectoryAtURL:root withIntermediateDirectories:YES attributes:nil error:&inner])return;
         NSURL *dst=[root URLByAppendingPathComponent:[record[@"id"] stringByAppendingPathExtension:@"nxsave"]];
         if(![data writeToURL:dst options:NSDataWritingAtomic error:&inner])return;
+        if(![self verifyPublishedData:data atURL:dst error:&inner])return;
         // The small discovery header is published after the complete checkpoint.
         // Other devices download only the chosen payload, not every historical save.
         NSMutableDictionary *header=[record mutableCopy];[header removeObjectForKey:@"files"];[header removeObjectForKey:@"dirs"];
         NSData *metadata=[NSPropertyListSerialization dataWithPropertyList:header format:NSPropertyListBinaryFormat_v1_0 options:0 error:&inner];
-        if(!metadata || ![metadata writeToURL:[dst.URLByDeletingPathExtension URLByAppendingPathExtension:@"nxmeta"] options:NSDataWritingAtomic error:&inner])return;
+        NSURL *index=[dst.URLByDeletingPathExtension URLByAppendingPathExtension:@"nxmeta"];
+        if(!metadata || ![metadata writeToURL:index options:NSDataWritingAtomic error:&inner])return;
+        if(![self verifyPublishedData:metadata atURL:index error:&inner]){[fm removeItemAtURL:index error:nil];return;}
         // Keep three checkpoints from this device. Never prune another device's
         // branch, an incomplete download, or a non-dominated concurrent branch.
         NSMutableArray *older=[NSMutableArray new];
@@ -316,11 +320,26 @@ static BOOL validateRecord(NSDictionary *r, NSString *title, NSString *version) 
         }
         [older sortUsingComparator:^NSComparisonResult(NSDictionary *a,NSDictionary *b){return [b[@"counter"] compare:a[@"counter"]];}];
         for(NSUInteger i=2;i<older.count;i++){NSURL *meta=older[i][@"url"];[fm removeItemAtURL:[meta.URLByDeletingPathExtension URLByAppendingPathExtension:@"nxsave"] error:nil];[fm removeItemAtURL:meta error:nil];}
+        verified=YES;
     }];self.coordinator=nil;
+    if(!verified && !inner)inner=syncError(@"The folder checkpoint could not be verified. The local save is retained.");
     if(inner){if(error)*error=inner;return NO;}if(error&&*error)return NO;
     [NSFileManager.defaultManager removeItemAtURL:outbox error:nil];
-    [self noteActivity:@{@"publishedAt":record[@"date"],@"publishedId":record[@"id"],@"publishedFolder":sha([self.folder.absoluteString dataUsingEncoding:NSUTF8StringEncoding])}];
-    self.message=@"Checkpoint saved to the cloud folder. Wait for iCloud Drive before switching devices.";return YES;
+    NSString *now=[NSISO8601DateFormatter.new stringFromDate:NSDate.date],*folder=sha([self.folder.absoluteString dataUsingEncoding:NSUTF8StringEncoding]);
+    [self noteActivity:@{@"publishedAt":now,@"publishedId":record[@"id"],@"publishedHash":record[@"hash"],@"publishedFolder":folder,@"verifiedAt":now,@"verifiedId":record[@"id"],@"verifiedHash":record[@"hash"],@"verifiedFolder":folder}];
+    self.message=@"Complete checkpoint verified in the selected folder. iCloud upload is confirmed separately.";return YES;
+}
+- (BOOL)verifyPublishedData:(NSData *)expected atURL:(NSURL *)url error:(NSError **)error {
+    // A successful provider write is not a server-upload acknowledgement. Read
+    // back the coordinated file before acknowledging even the folder write.
+    // Streaming keeps verification memory independent of checkpoint size.
+    NSInputStream *stream=[NSInputStream inputStreamWithURL:url];[stream open];
+    CC_SHA256_CTX context;CC_SHA256_Init(&context);uint8_t buffer[64u<<10];NSUInteger size=0;NSInteger count;
+    while((count=[stream read:buffer maxLength:sizeof buffer])>0){size+=(NSUInteger)count;CC_SHA256_Update(&context,buffer,(CC_LONG)count);if(size>expected.length)break;}
+    NSError *failure=count<0?stream.streamError:nil;[stream close];unsigned char digest[CC_SHA256_DIGEST_LENGTH];CC_SHA256_Final(digest,&context);
+    NSMutableString *actual=[NSMutableString new];for(unsigned i=0;i<sizeof digest;i++)[actual appendFormat:@"%02x",digest[i]];
+    if(failure || size!=expected.length || ![actual isEqual:sha(expected)]){if(error)*error=failure?:syncError(@"The folder checkpoint could not be verified. The local save is retained.");return NO;}
+    return YES;
 }
 - (BOOL)install:(NSDictionary *)tree error:(NSError **)error {
     NSFileManager *fm=NSFileManager.defaultManager; NSURL *stage=[NSURL fileURLWithPath:[self.local.path stringByAppendingFormat:@".import-%@",NSUUID.UUID.UUIDString] isDirectory:YES];
@@ -352,27 +371,50 @@ static BOOL validateRecord(NSDictionary *r, NSString *title, NSString *version) 
         NSDictionary *p=[self plan:&e];if(!p)return;
         if(token.length && ![token isEqual:p[@"token"]]){e=syncError(@"The local or cloud save changed. Refresh before choosing.");return;}
         if([p[@"conflict"] boolValue] && !choice.length){e=syncError(@"Different devices have different progress. Choose which complete save to use.");return;}
-        NSDictionary *tree=p[@"tree"],*selected=nil;
+        NSDictionary *tree=p[@"tree"],*selected=nil,*verified=nil;
         if(!choice.length) {for(NSDictionary *r in p[@"heads"])if(!dominates(p[@"localClock"],r[@"clock"])){selected=r;break;}}
         else if(![choice isEqual:@"local"]) {for(NSDictionary *r in p[@"heads"])if([r[@"id"] isEqual:choice])selected=r;if(!selected){e=syncError(@"The selected checkpoint is no longer available.");return;}}
-        if(selected && ![selected[@"hash"] isEqual:tree[@"hash"]]){NSDictionary *full=[self loadRecord:selected error:&e];if(!full || ![self install:full error:&e])return;tree=full;}
         NSMutableDictionary *clock=[p[@"clock"] mutableCopy];
+        if(selected){
+            NSDictionary *full=[self loadRecord:selected error:&e];
+            if(!full){
+                // A complete local island with this exact content hash can
+                // repair its missing/damaged immutable folder checkpoint.
+                if([selected[@"hash"]isEqual:tree[@"hash"]] && !choice.length){e=nil;clock[self.device]=@([clock[self.device]unsignedLongLongValue]+1);ok=[self publish:[self recordForTree:tree clock:clock] error:&e];}
+                return;
+            }
+            if(![selected[@"hash"]isEqual:tree[@"hash"]]){if(![self install:full error:&e])return;tree=full;}
+            verified=selected;
+        }
         if(![tree[@"files"] count]){ok=YES;self.message=@"No cloud save yet. The next game save will create one.";return;}
         // A resolution acknowledges all known branches. Normal pulls do not invent
         // new progress; a changed local save or explicit choice creates a checkpoint.
         NSURL *outbox=[self.cache URLByAppendingPathComponent:@"outbox.nxsave"];
         BOOL needsPublish=choice.length || ![self.state[@"hash"] isEqual:tree[@"hash"]] || [NSFileManager.defaultManager fileExistsAtPath:outbox.path];
         if(selected && !choice.length)needsPublish=NO;
+        if(!needsPublish && !verified){
+            for(NSDictionary *head in p[@"heads"])if([head[@"hash"]isEqual:tree[@"hash"]] && [self loadRecord:head error:nil]){verified=head;break;}
+            // A local cache match alone cannot establish that a usable cloud
+            // checkpoint still exists after deletion, eviction or a failed write.
+            needsPublish=verified==nil;
+        }
         if(needsPublish){
             NSDictionary *pending=[NSDictionary dictionaryWithContentsOfURL:outbox];
             if(!choice.length && validateRecord(pending,self.title,self.version) && [pending[@"hash"]isEqual:tree[@"hash"]] && [pending[@"clock"]isEqual:clock])ok=[self publish:pending error:&e];
             else{clock[self.device]=@([clock[self.device] unsignedLongLongValue]+1);ok=[self publish:[self recordForTree:tree clock:clock] error:&e];}
         }
-        else {ok=[self saveState:@{@"clock":clock,@"hash":tree[@"hash"]} error:&e];if(ok && selected)[NSFileManager.defaultManager removeItemAtURL:outbox error:nil];self.message=@"Cloud save ready.";}
+        else {
+            ok=[self saveState:@{@"clock":clock,@"hash":tree[@"hash"]} error:&e];
+            if(ok){
+                if(selected)[NSFileManager.defaultManager removeItemAtURL:outbox error:nil];
+                [self noteActivity:@{@"verifiedAt":[NSISO8601DateFormatter.new stringFromDate:NSDate.date],@"verifiedId":verified[@"id"],@"verifiedHash":tree[@"hash"],@"verifiedFolder":sha([self.folder.absoluteString dataUsingEncoding:NSUTF8StringEncoding])}];
+                self.message=@"Local save matches a verified folder checkpoint. iCloud upload status is shown separately.";
+            }
+        }
     });if(error)*error=e;return ok;
 }
-- (void)beginSession { self.started=YES; self.active=self.folder!=nil; }
-- (void)beginOfflineSession { self.started=YES; self.active=NO; }
+- (void)beginSession { self.started=YES; self.active=self.folder!=nil;fprintf(stderr,"save sync: game session started; folder publication %s\n",self.active?"enabled":"disabled"); }
+- (void)beginOfflineSession { self.started=YES; self.active=NO;self.message=@"This session uses local saves. Cloud publication is disabled."; }
 - (void)captureCommit:(NSString *)path {
     // Foundation and the host can spell the same save through different aliases
     // (/var versus /private/var, for example). Match the committed directory's
@@ -399,14 +441,25 @@ static BOOL validateRecord(NSDictionary *r, NSString *title, NSString *version) 
 }
 - (void)flush { dispatch_sync(self.worker,^{}); }
 - (NSURL *)checkpointRoot { return [self.cache URLByAppendingPathComponent:@"checkpoints" isDirectory:YES]; }
+- (BOOL)folderCheckpointAvailable {
+    NSDictionary *a=self.activity;NSString *identifier=a[@"verifiedId"]?:a[@"publishedId"],*folder=a[@"verifiedFolder"]?:a[@"publishedFolder"];
+    if(!self.folder || ![identifier isKindOfClass:NSString.class] || ![[NSUUID alloc]initWithUUIDString:identifier] || ![folder isEqual:sha([self.folder.absoluteString dataUsingEncoding:NSUTF8StringEncoding])])return NO;
+    for(NSString *ext in @[@"nxsave",@"nxmeta"]){
+        NSURL *url=[[self cloudRoot]URLByAppendingPathComponent:[identifier stringByAppendingPathExtension:ext]];
+        NSDictionary *v=[url resourceValuesForKeys:@[NSURLIsRegularFileKey,NSURLIsSymbolicLinkKey,NSURLFileSizeKey] error:nil];
+        if(![v[NSURLIsRegularFileKey]boolValue] || [v[NSURLIsSymbolicLinkKey]boolValue] || ![v[NSURLFileSizeKey]unsignedLongLongValue])return NO;
+    }
+    return YES;
+}
 - (NSString *)providerUploadState {
     if(!self.folder)return @"Not connected";
-    NSDictionary *a=self.activity;NSString *identifier=a[@"publishedId"];
-    if(![identifier isKindOfClass:NSString.class] || ![[NSUUID alloc]initWithUUIDString:identifier] || ![a[@"publishedFolder"]isEqual:sha([self.folder.absoluteString dataUsingEncoding:NSUTF8StringEncoding])])return @"No checkpoint published yet";
+    NSDictionary *a=self.activity;NSString *identifier=a[@"verifiedId"]?:a[@"publishedId"],*folder=a[@"verifiedFolder"]?:a[@"publishedFolder"];
+    if(![identifier isKindOfClass:NSString.class] || ![[NSUUID alloc]initWithUUIDString:identifier] || ![folder isEqual:sha([self.folder.absoluteString dataUsingEncoding:NSUTF8StringEncoding])])return @"No checkpoint published yet";
     NSURL *root=[self cloudRoot];BOOL uploaded=YES;
     for(NSString *ext in @[@"nxsave",@"nxmeta"]) {
         NSURL *url=[root URLByAppendingPathComponent:[identifier stringByAppendingPathExtension:ext]];
-        NSDictionary *v=[url resourceValuesForKeys:@[NSURLIsUbiquitousItemKey,NSURLUbiquitousItemIsUploadedKey,NSURLUbiquitousItemIsUploadingKey,NSURLUbiquitousItemUploadingErrorKey] error:nil];
+        NSDictionary *v=[url resourceValuesForKeys:@[NSURLIsRegularFileKey,NSURLIsSymbolicLinkKey,NSURLFileSizeKey,NSURLIsUbiquitousItemKey,NSURLUbiquitousItemIsUploadedKey,NSURLUbiquitousItemIsUploadingKey,NSURLUbiquitousItemUploadingErrorKey] error:nil];
+        if(![v[NSURLIsRegularFileKey]boolValue] || [v[NSURLIsSymbolicLinkKey]boolValue] || ![v[NSURLFileSizeKey]unsignedLongLongValue])return @"The folder checkpoint is missing or unavailable.";
         if(![v[NSURLIsUbiquitousItemKey]isEqual:@YES])return @"Written to folder; provider upload unconfirmed";
         if([v[NSURLUbiquitousItemUploadingErrorKey]isKindOfClass:NSError.class])return @"iCloud reports an upload error";
         if([v[NSURLUbiquitousItemIsUploadingKey]isEqual:@YES])return @"iCloud is uploading";
@@ -442,7 +495,10 @@ static BOOL validateRecord(NSDictionary *r, NSString *title, NSString *version) 
     __block NSDictionary *result;__block NSError *e;
     dispatch_sync(self.worker,^{@autoreleasepool {
         NSDictionary *tree=[NSFileManager.defaultManager fileExistsAtPath:self.local.path] ? readTree(self.local,&e) : @{@"files":@{},@"hash":@""};if(!tree)return;
-        result=@{@"localHash":tree[@"hash"],@"fileCount":@([tree[@"files"]count]),@"history":[self checkpointRows:tree[@"hash"]],@"localSavedAt":self.activity[@"localSavedAt"] ?: @"",@"publishedAt":self.activity[@"publishedAt"] ?: @"",@"uploadState":[self providerUploadState],@"playing":@(self.started)};
+        NSString *hash=self.activity[@"verifiedHash"]?:self.activity[@"publishedHash"],*folder=self.activity[@"verifiedFolder"]?:self.activity[@"publishedFolder"];
+        BOOL matches=[self folderCheckpointAvailable] && [hash isEqual:tree[@"hash"]] && [folder isEqual:sha([self.folder.absoluteString dataUsingEncoding:NSUTF8StringEncoding])];
+        NSString *upload=self.folder && [tree[@"files"]count] && !matches?@"Current local progress has not been verified in the sync folder.":[self providerUploadState];
+        result=@{@"localHash":tree[@"hash"],@"fileCount":@([tree[@"files"]count]),@"history":[self checkpointRows:tree[@"hash"]],@"localSavedAt":self.activity[@"localSavedAt"] ?: @"",@"publishedAt":self.activity[@"publishedAt"] ?: @"",@"uploadState":upload,@"folderMatchesLocal":@(matches),@"playing":@(self.started)};
     }});if(error)*error=e;return result;
 }
 - (BOOL)createCheckpoint:(NSString *)name error:(NSError **)error {

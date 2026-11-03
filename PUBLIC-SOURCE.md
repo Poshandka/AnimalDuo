@@ -4,7 +4,7 @@
 
 ## Scope
 
-This is a source snapshot of the Animal Crossing 3.0.3 Apple extension, based on nxnative revision b7a5cd43453722d448e07407d88a9c05ed294492. It preserves the original source and copyright notices. Runtime sources match the resident-dialogue release; publication removes private records, unnecessary debug metadata and the nested dependency archive. The dedicated AnimalDuo tree also omits other games' large profile tables and the upstream screenshot gallery; their small, unchanged metadata and patch files survive only as opt-in test fixtures. The complete ACNH profile, runtime, dependencies and licenses are retained.
+This is a source snapshot of the Animal Crossing 3.0.3 Apple extension, based on nxnative revision b7a5cd43453722d448e07407d88a9c05ed294492. It preserves the original source and copyright notices. Runtime sources match application 3.0.51 (game 3.0.3); publication removes private records, unnecessary debug metadata and the nested dependency archive. The dedicated AnimalDuo tree also omits other games' large profile tables and the upstream screenshot gallery; their small, unchanged metadata and patch files survive only as opt-in test fixtures. The complete ACNH profile, runtime, dependencies and licenses are retained.
 
 Included extensions:
 
@@ -19,6 +19,17 @@ Included extensions:
 - A build-time starter-dialogue overlay generated from the builder's own game resources. It retains resident origin/housing state and preserves nonempty original dialogue.
 
 The Mac native launcher does not provide the Swift resident-management UI; it can load the same edited island and generated dialogue overlay. This list does not promise feature parity across every Apple device.
+
+## Application 3.0.51
+
+The current tree adds full-canvas ordinary-phone landscape, adaptive folding UI,
+reserved persistent companion controls, native typing/bulletin-board touch,
+optional mobile smoothing with thermal cutoff, retired-stack reclamation and
+persistent resources. See [the Chinese release notes](RELEASES/3.0.51.md).
+Thin app updates require the matching resources to have been installed previously.
+They cannot bootstrap a new installation without user-owned game inputs.
+Reverse-landscape fold heading, wide native-UI clipping, intermittent room loading,
+frame-time spikes and physical cross-device acceptance remain open.
 
 ## Inputs and build
 
@@ -39,15 +50,15 @@ Before packaging with the resident manager enabled, generate and verify the star
     python3 scripts/build_acnh_starter_dialogue.py /external/game/RomFS /external/game/dialogue-overlay --report /external/game/dialogue-overlay.json --merged-romfs /external/game/dialogue-RomFS
     python3 scripts/build_acnh_starter_dialogue.py /external/game/dialogue-RomFS --verify
 
-For the final unsigned iOS build, use dm/ios/tools/build_ipa.sh with GAME=01006F8002326000 and the external W, PATCHED, ROMFS, MSL_IOS, AOC, FONT_PY, DM_CONTROL_NACP, DM_RESIDENT_CATALOG and DM_RESIDENT_LICENSE inputs described in the retained BUILD-RESIDENT-DIALOGUE-FIX.txt and earlier BUILD files. ROMFS must point to the verified merged dialogue-RomFS, and DM_CONTROL_NACP to the original control metadata. Set DM_LANG=zh-Hans and DM_PSO_GPUS=none for the generic configuration. The catalog/license paths and game extraction remain external. The generated Gen directory is disposable; do not commit it.
+For the final unsigned iOS build, use dm/ios/tools/build_ipa.sh with GAME=01006F8002326000 and the external W, PATCHED, ROMFS, MSL_IOS, AOC, FONT_PY, DM_CONTROL_NACP, DM_RESIDENT_CATALOG and DM_RESIDENT_LICENSE inputs described in BUILD-PANEL-CONTROLS.txt, BUILD-RESIDENT-DIALOGUE-FIX.txt and the earlier BUILD files. ROMFS must point to the verified merged dialogue-RomFS, and DM_CONTROL_NACP to the original control metadata. Set DM_LANG=zh-Hans and DM_PSO_GPUS=none for the generic configuration. The catalog/license paths and game extraction remain external. The generated Gen directory is disposable; do not commit it.
 
 For native Mac packaging, first build dm/host with GAME=01006F8002326000 and an Apple-m1 CPU baseline, then pass the verified merged RomFS, matching external patched modules/libraries/profile tables/fonts and add-on content to dm/mac/pack_app.py. Set --cloud-save-setup for the chooser flow. Review its --help for the required options. Ad-hoc Mac signing and unsigned iOS packaging are separate workflows.
 
-Historical BUILD files describe earlier snapshots. Their references to private validation recordings are historical; those recordings are deliberately excluded from this public tree. Production unit-test sources remain available.
+BUILD-PANEL-CONTROLS.txt describes application 3.0.51; other historical BUILD files describe earlier snapshots. Their references to private validation recordings are historical; those recordings are deliberately excluded from this public tree. Production unit-test sources remain available.
 
 ## Validation
 
-The publication check verifies that production runtime and build-tool bytes match the input release, except for no production-code changes. Documentation links and asset-independent unit checks are recorded in the accompanying publication report. Historical M4 measurements and unresolved issues are documented in [the game note](dm/games/01006F8002326000/README.md); they are not fresh device measurements from this publication.
+The publication check verifies that production runtime and build-tool bytes match the input release, against the frozen 3.0.51 corresponding-source archive. Production code is unchanged by public-source preparation; existing lightweight test-fixture adaptations remain. Documentation links and asset-independent unit checks are recorded in the accompanying publication report. Historical M4 measurements and unresolved issues are documented in [the game note](dm/games/01006F8002326000/README.md); they are not fresh device measurements from this publication.
 
 Do not infer physical iPad/iPhone/M2, cross-device cloud/LAN, all-weather shader coverage or guaranteed prolonged stability from local Mac results. A repeated-room loading-readiness incident remains unresolved. Raw private run logs and screenshots are not needed to build this source.
 

@@ -15,10 +15,12 @@ import Foundation
         // No modal-dismissal notification is delivered. Selection must still configure.
         await settle(m)
         assert(m.configured && m.folder=="chosen" && cloud_test_selects()==1)
+        assert(m.checkpointFolder=="nxnative-test")
         assert(cloud_test_inspections()==0 && cloud_test_prepares()==0 && cloud_test_sessions()==0)
         assert(m.message=="Cloud folder connected. Select Sync now to check your saves.")
         m.synchronize();await settle(m)
         assert(cloud_test_inspections()==1 && cloud_test_prepares()==1)
+        assert(cloud_test_centers()==1 && m.center["fileCount"] as? Int==1)
         m.choosingFolder=true;m.finishFolderSelection(nil)
         assert(!m.choosingFolder && !m.busy && m.configured && cloud_test_selects()==1)
         m.disconnect();assert(!m.configured)
@@ -33,6 +35,7 @@ import Foundation
         assert(m.configured && m.waitingForPlay && !played && cloud_test_sessions()==0)
         m.synchronize();await settle(m)
         assert(played && !m.waitingForPlay && cloud_test_sessions()==1)
+        assert(cloud_test_centers()==2 && m.center["fileCount"] as? Int==2)
         print("cloud model: result delivery without dismissal, cancellation, bookmark error/retry and explicit synchronization passed")
     }
 }

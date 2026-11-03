@@ -13,13 +13,15 @@ static dispatch_queue_t perfQueue;
 static NSFileHandle *perfFile;
 static os_unfair_lock perfLock=OS_UNFAIR_LOCK_INIT;
 static _Atomic int perfEnabled;
+static _Atomic int perfFramePresented;
+int dm_performance_has_presented(void) { return atomic_load_explicit(&perfFramePresented,memory_order_acquire); }
 static double perfStart,perfWindow,perfPrevious,perfSum,perfMaximum,perfMaximumGap;
 static uint64_t perfCount,perfGaps,perfOver50,perfOver100,perfHistogram[2001];
 
 static void perfWrite(NSDictionary *row) {
     if(!perfFile)return;
     NSData *json=[NSJSONSerialization dataWithJSONObject:row options:NSJSONWritingSortedKeys error:nil];
-    if(json)@try{[perfFile writeData:json];[perfFile writeData:[@"\n" dataUsingEncoding:NSUTF8StringEncoding]];}@catch(NSException *e){atomic_store(&perfEnabled,0);fprintf(stderr,"performance: report write failed: %s\n",e.reason.UTF8String);}
+    if(json)@try{[perfFile writeData:json];[perfFile writeData:[@"\n" dataUsingEncoding:NSUTF8StringEncoding]];}@catch(NSException *e){atomic_store(&perfEnabled,0);fprintf(stderr,"[RED] performance: report write failed: %s\n",e.reason.UTF8String);}
 }
 static double perfPercentile(double fraction) {
     if(!perfCount)return 0;
@@ -28,17 +30,22 @@ static double perfPercentile(double fraction) {
     return 2000;
 }
 void dm_performance_presented(double timestamp) {
+    if(!isfinite(timestamp) || timestamp<=0)return;
+    if(!atomic_load_explicit(&perfFramePresented,memory_order_relaxed)){
+        int expected=0;
+        if(atomic_compare_exchange_strong_explicit(&perfFramePresented,&expected,1,memory_order_release,memory_order_relaxed))fprintf(stderr,"display: first game frame presented\n");
+    }
     static dispatch_once_t once;
     dispatch_once(&once,^{
         if(![NSUserDefaults.standardUserDefaults boolForKey:@"DmPerformanceRecord"])return;
-        const char *path=getenv("DM_ROOT");if(!path || !*path)return;
+        const char *path=getenv("DM_ROOT");if(!path || !*path){fprintf(stderr,"[RED] performance: recording enabled but DM_ROOT is unset\n");return;}
         NSURL *root=[[NSURL fileURLWithPath:@(path) isDirectory:YES]URLByAppendingPathComponent:@"performance" isDirectory:YES];
-        NSError *error;if(![NSFileManager.defaultManager createDirectoryAtURL:root withIntermediateDirectories:YES attributes:nil error:&error])return;
+        NSError *error=nil;if(![NSFileManager.defaultManager createDirectoryAtURL:root withIntermediateDirectories:YES attributes:nil error:&error]){fprintf(stderr,"[RED] performance: cannot create reports directory: %s\n",error.localizedDescription.UTF8String);return;}
         NSString *name=[NSString stringWithFormat:@"%@-%@.jsonl",[NSISO8601DateFormatter.new stringFromDate:NSDate.date],NSUUID.UUID.UUIDString];
         name=[name stringByReplacingOccurrencesOfString:@":" withString:@"-"];
         NSURL *url=[root URLByAppendingPathComponent:name];
-        if(![NSFileManager.defaultManager createFileAtPath:url.path contents:nil attributes:nil])return;
-        perfFile=[NSFileHandle fileHandleForWritingToURL:url error:&error];if(!perfFile)return;
+        if(![NSData.data writeToURL:url options:NSDataWritingWithoutOverwriting error:&error]){fprintf(stderr,"[RED] performance: cannot create report file: %s\n",error.localizedDescription.UTF8String);return;}
+        perfFile=[NSFileHandle fileHandleForWritingToURL:url error:&error];if(!perfFile){fprintf(stderr,"[RED] performance: cannot open report file: %s\n",error.localizedDescription.UTF8String);return;}
         perfQueue=dispatch_queue_create("dm.performance.report",DISPATCH_QUEUE_SERIAL);
         perfWrite(@{@"schema":@"nxnative-performance/1",@"event":@"start",@"os":NSProcessInfo.processInfo.operatingSystemVersionString,@"source":@"actual drawable presentedTime",@"limit_seconds":@1800,@"interval_resolution_ms":@1,@"gaps_over_2_seconds":@"reported separately; excluded from interval FPS"});
         atomic_store(&perfEnabled,1);fprintf(stderr,"performance: recording actual displayed frames for up to 30 minutes (%s)\n",url.lastPathComponent.UTF8String);

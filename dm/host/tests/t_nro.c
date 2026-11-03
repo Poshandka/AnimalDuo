@@ -8,6 +8,7 @@ struct dm_flags g_flag;
 uint64_t now_ns(void) { return 0; }
 void gate_register(uint64_t a, const char *k, int n, uint64_t o) { (void)a; (void)k; (void)n; (void)o; }
 void hlecount_seal(void) {}
+void dm_view_install(module_t *m) { (void)m; }
 void *hlecount_wrap(const char *kind, const char *name, void *fn) { (void)kind; (void)name; return fn; }
 static uint64_t missing;
 uint64_t resolve_import(module_t *m, const char *name) { (void)m; (void)name; return (uint64_t)&missing; }

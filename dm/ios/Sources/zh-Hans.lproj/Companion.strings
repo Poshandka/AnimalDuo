@@ -64,6 +64,9 @@
 "Auto fade" = "自动淡出";
 "Always show" = "始终显示";
 "Hide controls" = "隐藏按键，仅触控";
+"Direct touch" = "直接触控（隐藏按键）";
+"Touch" = "触控";
+"Controls" = "按键";
 "Screen controls" = "屏幕按键";
 
 "Touch controls" = "按键布局";
@@ -76,3 +79,12 @@
 "Stick dead zone" = "摇杆死区";
 "Reset this layout" = "重置当前布局";
 "Save" = "保存";
+"Game image" = "游戏画面";
+"Fit entire image" = "完整画面（保留黑边）";
+"Fill image" = "等比铺满（裁切边缘）";
+"Stretch image" = "拉伸铺满";
+"Expand game view" = "扩展游戏视野（铺满）";
+
+"Starting game…" = "正在启动游戏…";
+"Preparing shaders" = "正在准备着色器";
+"Preparing pipelines" = "正在准备图形管线";

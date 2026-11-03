@@ -1,6 +1,7 @@
 // Exercise real manifest loading, shader loading, pipeline builds, cache claims and GPU draws.
 // Synthetic shaders need no game files; old rows differ in unused state, while live changes and logical target 7 in a merged pass must remain distinct.
 #include "../nvn/nvn_mtl.m"
+#include <objc/runtime.h>
 
 void *front_metal_layer(void) { return NULL; }
 module_t *module_of(const void *p) { (void)p; return NULL; }
@@ -86,8 +87,44 @@ static void check_draw(const pso_key *raw, int merged, const uint8_t expected[4]
     g_pso_lmap = NULL;
 }
 
+typedef id<MTLLibrary> (*LibraryLoader)(id, SEL, dispatch_data_t, NSError **) NS_RETURNS_RETAINED;
+static LibraryLoader original_library_loader;
+static _Atomic unsigned library_loads;
+static id<MTLLibrary> counted_library_load(id device, SEL selector, dispatch_data_t data, NSError **error) NS_RETURNS_RETAINED {
+    atomic_fetch_add(&library_loads, 1);
+    return original_library_loader(device, selector, data, error);
+}
+
+static void parallel_shaders(void) {
+    // Independent shader and pair tasks can all request one library. Counting
+    // real Metal library requests catches discarded duplicate loads even when
+    // every caller ultimately receives the same cached NvShader.
+    Class device_class = object_getClass(g_dev); SEL selector = @selector(newLibraryWithData:error:);
+    Method method = class_getInstanceMethod(device_class, selector);
+    original_library_loader = (LibraryLoader)method_getImplementation(method);
+    class_replaceMethod(device_class, selector, (IMP)counted_library_load, method_getTypeEncoding(method));
+    atomic_store(&library_loads, 0);
+    for (int wave = 0; wave < 8; wave++) {
+        g_warm_dict = [NSMutableDictionary dictionary];
+        NSMutableArray *results = [NSMutableArray array];
+        dispatch_apply(32, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^(size_t i) {
+            @autoreleasepool {
+                NvShader *shader = warm_shader(@"warm-vs", 0);
+                @synchronized (results) { [results addObject:shader ?: (id)NSNull.null]; }
+            }
+        });
+        EXPECT("all concurrent callers finish", 32, results.count);
+        EXPECT("shader load succeeds", 1, [results.firstObject isKindOfClass:NvShader.class]);
+        int same = 1; for (id shader in results) same &= shader == results.firstObject;
+        EXPECT("concurrent callers share the shader", 1, same);
+    }
+    class_replaceMethod(device_class, selector, (IMP)original_library_loader, method_getTypeEncoding(method));
+    EXPECT("one real library load per cold key", 8, atomic_load(&library_loads));
+}
+
 static void scenario(NSString *dir, int merged) {
     nvn_hm_clear(&g_pso, hm_rel); g_shcache = nil; g_warm_items = [NSMutableArray array];
+    g_warm_dict = [NSMutableDictionary dictionary];
     g_warm_rps = g_warm_claim_rps = 0; atomic_store(&g_warm_ready, 0);
     pso_key keys[4] = {0}; keys[0].cfmt[0] = MTLPixelFormatRGBA8Unorm; keys[0].samples = 1;
     int logical = merged ? 7 : 0;
@@ -133,6 +170,7 @@ int main(void) { @autoreleasepool {
     char dir[] = "/tmp/t_pso_warm.XXXXXX"; if (!mkdtemp(dir)) return 1;
     mtl_init();
     if (!fixtures(@(dir))) { fprintf(stderr, "failed to compile synthetic shader fixtures\n"); [NSFileManager.defaultManager removeItemAtPath:@(dir) error:nil]; return 1; }
+    parallel_shaders();
     scenario(@(dir), 0); scenario(@(dir), 1);
     const char *mode = getenv("DM_PSO_MTL4");
     if (mode) EXPECT("requested compiler path selected", strcmp(mode, "0") != 0, g_comp4 != nil);

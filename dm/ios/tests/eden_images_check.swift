@@ -20,6 +20,22 @@ extension EdenImages {
         let images=EdenImages()
         images.request(["module:first"],model);await settle()
         assert(images.get("module:first") != nil)
+        assert(images.get("module:first")?.colorSpace?.name == CGColorSpace.sRGB)
+        // Warm colours and teal app icons retain their authored values when
+        // composited into either sRGB or a wide-gamut display surface.
+        let palette=Data([52,174,132,255,231,143,53,255,136,71,229,255])
+        let paletteModel=CompanionModel(reader:{["acnh.ready":1]},sender:{_,_ in},images:{_,done in done(palette,3,1)})
+        let paletteImages=EdenImages();paletteImages.request(["module:palette"],paletteModel);await settle()
+        let source=paletteImages.get("module:palette")!
+        assert(source.colorSpace?.name == CGColorSpace.sRGB)
+        for name in [CGColorSpace.sRGB,CGColorSpace.displayP3] {
+            let surface=CGContext(data:nil,width:3,height:1,bitsPerComponent:8,bytesPerRow:12,space:CGColorSpace(name:name)!,bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue)!
+            surface.draw(source,in:CGRect(x:0,y:0,width:3,height:1))
+            let roundtrip=CGContext(data:nil,width:3,height:1,bitsPerComponent:8,bytesPerRow:12,space:CGColorSpace(name:CGColorSpace.sRGB)!,bitmapInfo:CGImageAlphaInfo.premultipliedLast.rawValue)!
+            roundtrip.draw(surface.makeImage()!,in:CGRect(x:0,y:0,width:3,height:1))
+            let actual=roundtrip.data!.assumingMemoryBound(to:UInt8.self)
+            for i in 0..<palette.count {assert(abs(Int(actual[i])-Int(palette[i]))<=2)}
+        }
         images.discardWarmImagesForTest()
         assert(images.get("module:first") != nil)
         let loaded=loads

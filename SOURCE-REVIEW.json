@@ -1,0 +1,13 @@
+{
+  "application_version": "3.0.51",
+  "game_version": "3.0.3",
+  "source_scope": "Frozen corresponding source; public documentation and lightweight fixture adaptations only.",
+  "production_files_identical_to_frozen_release": 1042,
+  "publication_tests_passed": 24,
+  "private_local_paths_found": 0,
+  "private_device_or_person_identifiers_found": 0,
+  "credential_patterns_found": 0,
+  "raw_logs_saves_cloud_bookmarks_signing_or_game_resources_included": false,
+  "upstream_copyright_and_component_licenses_retained": true,
+  "new_physical_device_or_game_performance_results": false
+}

@@ -110,7 +110,7 @@ private struct LauncherView: View {
                             Label(dm_save_sync_text("Save center"), systemImage: "externaldrive")
                         }.disabled(startRequested)
                         Button{showTouchControls=true}label:{Label(companionText("Touch controls"),systemImage:"gamecontroller")}
-                        Button{showPerformance=true}label:{Label(dm_save_sync_text("Performance recording"),systemImage:"waveform.path.ecg")}
+                        Button{showPerformance=true}label:{Label(dm_save_sync_text("Performance settings"),systemImage:"waveform.path.ecg")}
                     }
                     ForEach(m.sections, id: \.self) { section in
                         Section(section) {
@@ -248,6 +248,7 @@ public func dmShowLauncher(_ viewController: UnsafeMutableRawPointer, _ done: @c
         guard host != nil else { return }
         host = nil
         model.apply()
+        dm_launch_transition()
         // The launcher may still present cloud settings. Dismiss from its root
         // presenter so the launcher and every sheet above it leave together.
         fputs("launcher: dismissing startup presentation\n", stderr)
@@ -256,7 +257,8 @@ public func dmShowLauncher(_ viewController: UnsafeMutableRawPointer, _ done: @c
             done()
         }
     }
-    let h = UIHostingController(rootView: view)
+    let h = GameHostingController(rootView: view)
+    h.orientationOwner = parent
     h.modalPresentationStyle = .fullScreen
     host = h
     parent.present(h, animated: false)

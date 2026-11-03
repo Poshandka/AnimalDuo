@@ -19,6 +19,7 @@
 #include <pthread/qos.h>
 #include <dlfcn.h>
 #include <stdatomic.h>
+#include <setjmp.h>
 
 #define R_TIMEOUT     0xEA01u   // Kernel module 1, description 117
 #define R_CANCELLED   0xEC01u   // 118
@@ -53,6 +54,7 @@ typedef struct thr {
     uint64_t born_ns, exit_ns; uint32_t born_tick, exit_tick;   // Time of creation / exit and the game tick at that time (for the state dump: did the job worker exit before the stall)
     int started, exited, cancel;
     pthread_t pt; pthread_cond_t cv;
+    jmp_buf exit_context; int exit_context_ready;  // Saved on the original pthread stack, before entering the guest.
     // Current wait: kind 0=none 1=lock 2=condition 3=address 4=synchronization object
     int wkind, woke; uint64_t waddr, wkey; uint32_t wtag; int64_t wres;
     _Atomic int sleeping;      // inside SleepThread's timed sleep (not runnable; used by dm_yield_to_core_peers)
@@ -284,6 +286,7 @@ static void qos_apply(thr_t *t) {   // on the thread itself
 // A host helper thread (audio notify / silent sink, vsync, movie decode) created from a guest thread inherits that thread's class; under DM_QOS_MAP it sets its own instead
 void dm_host_helper_qos(qos_class_t q) { if (g_qos_map) pthread_set_qos_class_self_np(q, 0); }
 static const char *thr_name(thr_t *t, char *buf, size_t n);
+static _Noreturn void thread_exit_native(thr_t *t);
 static void *thread_main(void *p) {
     thr_t *t = p;
     pthread_setspecific(g_keythr, t);
@@ -296,8 +299,15 @@ static void *thread_main(void *p) {
     pthread_mutex_lock(&G);t->qos=(uint32_t)qc;t->mport=port;t->host_work=&dm_host_work;
     while (!t->started) pthread_cond_wait(&t->cv, &G); pthread_mutex_unlock(&G);
     { char nb[48], hn[64]; snprintf(hn, sizeof hn, "%#x %s", t->handle, thr_name(t, nb, sizeof nb)); pthread_setname_np(hn); }   // the guest's name (set before StartThread) for sample / Instruments
-    dm_thread_enter(t->entry, t->arg, t->stack_top);   // Does not return: the guest must exit through ExitThread
-    die("guest thread entry returned");
+    // ExitThread must leave the guest stack before signaling termination: its
+    // waiter can immediately UnmapMemory that stack. pthread_exit and TLS
+    // destructors must also run on the original, still-owned pthread stack.
+    if (setjmp(t->exit_context) == 0) {
+        t->exit_context_ready = 1;
+        dm_thread_enter(t->entry, t->arg, t->stack_top);
+        die("guest thread entry returned");
+    }
+    thread_exit_native(t);
 }
 static void thr_free(thr_t *t) {   // Holding G; unlink from the all-threads chain and free
     for (thr_t **p = &g_all; *p; p = &(*p)->all) if (*p == t) { *p = t->all; break; }
@@ -306,9 +316,8 @@ static void thr_free(thr_t *t) {   // Holding G; unlink from the all-threads cha
     pthread_cond_destroy(&t->cv); pthread_cond_destroy(&t->pcv); free(t);
 }
 static void wake_sync_waiters(const void *obj);
-static void thread_exit(thr_t *t) {
+static _Noreturn void thread_exit_native(thr_t *t) {
     t->exit_ns = now_ns(); t->exit_tick = dm_thread_tick_fn ? dm_thread_tick_fn() : 0;
-    // No logging here: the exit happens on the guest thread's own stack (some are only a dozen or so KiB), and a printf with floating point would blow the stack (real-device smoke test: SIGBUS when LibcurlResolver exits, backtrace fprintf → __dtoa). Only the time is recorded, and it is printed later in the state dump
     pthread_mutex_lock(&G);
     t->exited = 1;
     wake_sync_waiters(t);   // Synchronization waiters on this thread re-check
@@ -316,6 +325,10 @@ static void thread_exit(thr_t *t) {
     if (t->closed) thr_free(t);
     pthread_mutex_unlock(&G);
     pthread_exit(NULL);
+}
+static _Noreturn void thread_exit(thr_t *t) {
+    if (t->exit_context_ready) longjmp(t->exit_context, 1);
+    thread_exit_native(t);   // The registered main thread already uses its native stack.
 }
 void dm_thread_returned(void) { die("guest thread entry function returned (Horizon requires ExitThread)"); }
 

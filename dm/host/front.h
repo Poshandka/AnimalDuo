@@ -13,6 +13,19 @@ static inline void front_hud_env(void) {
 void front_run(void (*guest)(void));
 // The CAMetalLayer the graphics backend presents frames to (NULL when there is no window)
 void *front_metal_layer(void);
+// Presentation policy is owned by the front end; the renderer defaults to fit.
+int front_present_mode(void);
+void front_present_source_size(unsigned width,unsigned height);
+// Dynamic guest camera adapters are optional, registered by the rewritten build.
+// Aspect zero disables adaptation. Geometry updates may precede host loading.
+void dm_view_target(double aspect);
+void dm_view_device(int capable);
+double dm_view_aspect(void);
+int dm_view_available(void);
+int dm_view_touch(float *x, float *y);
+// A verified native keyboard or drawing page rendered in the last two frames.
+// Ordinary game-surface taps do not imply a touch-capable interface.
+unsigned dm_view_touch_context(void);
 // The highest refresh rate of the window's screen in Hz, 0 = not known (Mac front_mac.m; none on iOS, whose screens run at multiples of 60 Hz). Any thread
 int front_screen_max_fps(void);
 // The frame rate the display link paces the game at (60, 30, 120; nvn_mtl.m link_sync): in fullscreen, a screen whose refresh rate is not a multiple of it is switched, while the game runs,
@@ -22,6 +35,9 @@ void front_screen_match(int fps);
 // title and done of total shown over the game's view (a dark screen, the title, a bar and a count), updated on each call; title NULL hides it. Any thread; the front end switches to its main
 // thread and does not block. Nothing is shown without a window
 void front_progress(const char *title, long done, long total);
+// Set only by a valid actual drawable-presented timestamp; independent of the
+// optional performance recorder. The startup UI must not expose an empty layer.
+int dm_performance_has_presented(void);
 #include <stdint.h>
 // Text input box (for the software keyboard swkbd): the main thread shows a native input box and the calling thread blocks until the user confirms / cancels.
 // All text is UTF-8; max_chars is the maximum character count (0 = unlimited, only a hint for the front end; truncation is done uniformly by the caller hle_swkbd.c in UTF-16 units).

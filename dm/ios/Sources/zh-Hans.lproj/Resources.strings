@@ -1,0 +1,9 @@
+"Installing game resources" = "首次安装游戏资源";
+"This is only needed once. Future app updates can be small." = "只需安装一次，完成后即可使用小体积更新包。";
+"Check again" = "重新检查";
+"Game resources are not installed" = "尚未安装游戏资源";
+"Install and open the complete resource version once, then use the small update package. Keep the same app and its data." = "请先覆盖安装并打开一次完整资源版，完成后再使用小更新包。请保留同一个 App 及其数据。";
+"Keep this app open. You can return later to continue." = "请保持 App 在前台，离开后可回来继续安装。";
+"Installation paused. Return to this app to continue." = "安装已暂停，回到 App 后将继续。";
+"Resource installation needs attention" = "资源安装未完成";
+"Keep the complete version installed and try again." = "请保留完整资源版，然后重试。";

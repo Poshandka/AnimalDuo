@@ -4,13 +4,21 @@ int main(int argc,const char **argv){@autoreleasepool{
     assert(argc==3);BOOL enabled=strcmp(argv[2],"off")!=0;
     [NSUserDefaults.standardUserDefaults setVolatileDomain:@{@"DmPerformanceRecord":@(enabled)} forName:NSArgumentDomain];
     setenv("DM_ROOT",argv[1],1);
+    BOOL missing=strcmp(argv[2],"missing")==0,blocked=strcmp(argv[2],"blocked")==0;
+    if(missing)unsetenv("DM_ROOT");
+    if(blocked){NSString *path=[@(argv[1])stringByAppendingPathComponent:@"blocked-root"];[NSData.data writeToFile:path atomically:YES];setenv("DM_ROOT",path.fileSystemRepresentation,1);}
+    assert(!dm_performance_has_presented());
+    dm_performance_presented(NAN);dm_performance_presented(INFINITY);dm_performance_presented(0);dm_performance_presented(-1);
+    assert(!dm_performance_has_presented());
     for(int i=0;i<55000;i++){
         double t=1+i/30.0+(i>=900 ? 3:0)+(i>=400 ? .2-1.0/30:0)+(i>=500 ? .06-1.0/30:0);dm_performance_presented(t);
         if(i==200)dm_performance_presented(t-1); // Late callback must not reverse time.
     }
+    assert(dm_performance_has_presented());
     dm_performance_flush();
     NSURL *folder=[[NSURL fileURLWithPath:@(argv[1]) isDirectory:YES]URLByAppendingPathComponent:@"performance"];
     NSArray *files=[NSFileManager.defaultManager contentsOfDirectoryAtURL:folder includingPropertiesForKeys:nil options:0 error:nil];
+    if(missing || blocked){assert(!files.count && !perfFile && !atomic_load(&perfEnabled));puts("Performance recorder initialization failure: no enabled writer or false report PASS");return 0;}
     if(!enabled){assert(!files.count);puts("Performance recorder disabled: no file or timer PASS");return 0;}
     assert(files.count==1);NSString *text=[NSString stringWithContentsOfURL:files[0] encoding:NSUTF8StringEncoding error:nil];
     int windows=0,gaps=0,over50=0,over100=0;double maximum=0,maximumGap=0;BOOL complete=NO;

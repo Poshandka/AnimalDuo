@@ -1,7 +1,7 @@
 // Portrait companions use shared side geometry: the centre passes touches to the
 // auxiliary view, and both sticks are visible. The standard overlay remains edge-based.
 // Virtual gamepad (Nintendo button positions) + physical controllers (GameController). Both are merged and handed to the host through dm_input_set (hle_hid.c, bit layout in dm_input.h).
-//   Two layouts, three in handheld mode; one tap on the layout button at the top centre (labelled with the current layout, "2D" / "3D" / "Tap") goes to the next, and the choice is kept in NSUserDefaults (each game is its own app, so per game); the first launch uses the game profile's pad_layout (DM_GAME_PAD_LAYOUT).
+//   The screen-controls menu selects 2D / 3D (and Tap in handheld mode), keeping the existing per-game NSUserDefaults choice and profile default (DM_GAME_PAD_LAYOUT).
 //   Tap (touch): no control but the layout button, every other touch goes to the game's touch screen; offered only while the game is in handheld mode, the only one in which it reads the touch screen (Balatro, played by touch).
 //   2D (simple): top corners ZL above L (one column), ZR above R likewise, teardrops with the tip toward the screen corner; − and + side by side at the top centre; the left stick in the bottom-left corner (fixed ring, tilt measured from the ring centre, small dead zone);
 //     the A (right) B (bottom) X (top) Y (left) diamond in the bottom-right corner, sliding a finger between keys switches keys. Each bottom corner holds a single control, so it sits close in (reaching halfway into the side safe-area inset).
@@ -104,8 +104,11 @@ int dm_opmode(void);   // hle_oe.c: 0 = handheld
 - (void)presentationCompanion:(BOOL)dock suppressed:(BOOL)suppressed;
 - (void)nativeSurface:(BOOL)enabled;
 - (void)artworkMode:(int)mode;
+- (void)companionCanvas:(CGRect)frame;
 @end
 static __weak DmGamepad *g_view;
+void front_native_ui_context(unsigned context);
+int front_controls_full_canvas(void);
 
 @implementation DmGamepad {
     NSMapTable<UITouch *, NSNumber *> *_owner;     // touch → control (with the key for C_BTN or the stick for C_STICK, << 8)
@@ -123,6 +126,7 @@ static __weak DmGamepad *g_view;
     BOOL _full, _tap;                              // the 3D layout / the Tap layout is current
     CALayer *_controls;                            // holds every control layer: hidden while a physical controller is connected (the view itself stays, for game touches)
     BOOL _sideControls, _suppressed, _nativeSurface;
+    CGRect _companionCanvas;
     dm_control_fade _fade;NSTimer *_artTimer;
     BOOL _padOff;                                  // a physical controller is connected: every touch goes to the game
     BOOL _previewMode;
@@ -203,26 +207,52 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }   
     for (int b = 0; b < B_N; b++) _key[b].hidden = _tap || (fullOnly(b) && !_full);
     _ring.hidden = _knob.hidden = _tap;
     _rightRing.hidden=_rightKnob.hidden=![self fixedRight] || !_full || _tap;
-    _swapLabel.string = _tap ? @"Tap" : _full ? @"3D" : @"2D";
+    _swap.hidden=!_previewMode;
+    _swapLabel.string = @"⋯";
     [CATransaction commit];
 }
-- (void)nextLayout {   // 2D → 3D (→ Tap in handheld mode) → 2D: release every touch first (no key stays held), save, lay out again
-    int l = _tap ? 0 : _full ? (dm_opmode() == 0 ? 2 : 0) : 1;
-    [self reset];
-    _full = l == 1; _tap = l == 2;
-    [NSUserDefaults.standardUserDefaults setObject:@(l) forKey:k_layout_key];
-    [self applyLayout]; [self setNeedsLayout];
+- (int)selectedLayout { return _tap ? 2 : _full ? 1 : 0; }
+- (void)selectLayout:(int)layout {
+    if(layout<0 || layout>2 || (layout==2 && dm_opmode()!=0))return;
+    [self reset];_full=layout==1;_tap=layout==2;
+    [NSUserDefaults.standardUserDefaults setInteger:layout forKey:k_layout_key];
+    [self applyLayout];[self setNeedsLayout];
 }
+- (void)nextLayout {
+    [self selectLayout:_tap ? 0 : _full ? (dm_opmode()==0 ? 2 : 0) : 1];
+}
+- (CGRect)settingsRect {
+    CGRect safe=self.safe;CGFloat d=MIN([self pillRect:B_MINUS].size.height,MIN(safe.size.width,safe.size.height));
+    if(d<=0)return CGRectNull;
+    CGPoint p=self.swapCenter;
+    p.x=MIN(CGRectGetMaxX(safe)-d/2,MAX(CGRectGetMinX(safe)+d/2,p.x));
+    p.y=MIN(CGRectGetMaxY(safe)-d/2,MAX(CGRectGetMinY(safe)+d/2,p.y));
+    return CGRectMake(p.x-d/2,p.y-d/2,d,d);
+}
+- (CGFloat)settingsIconSize { return 18*self.u; }
 
 // ---- Layout (points; computed inside the safe area) ----
 - (dm_companion_pad_layout)sideGeometry {
-    dm_companion_pad_layout p=dm_companion_pad_geometry(self.bounds.size);CGFloat s=self.controlScale;
-    p.unit*=s;p.face_gap*=s;p.face_r*=s;p.stick_r*=s;p.dpad_r*=s;p.right_r*=s;p.shoulder_r*=s;p.click_r*=s;p.swap_r*=s;p.knob_r*=s;p.menu_size.width*=s;p.menu_size.height*=s;return p;
+    if(!CGRectIsEmpty(_companionCanvas)){
+        dm_companion_surface_layout s=dm_companion_surface_make(_companionCanvas.size,1);
+        CGRect left=CGRectIntersection(self.bounds,CGRectOffset(s.left,_companionCanvas.origin.x,_companionCanvas.origin.y));
+        CGRect right=CGRectIntersection(self.bounds,CGRectOffset(s.right,_companionCanvas.origin.x,_companionCanvas.origin.y));
+        return dm_companion_pad_geometry_regions(self.bounds.size,self.controlScale,left,right);
+    }
+    return dm_companion_pad_geometry_scaled(self.bounds.size,self.controlScale);
+}
+- (void)companionCanvas:(CGRect)frame {
+    if(CGRectEqualToRect(frame,_companionCanvas))return;
+    [self reset];_companionCanvas=frame;[self setNeedsLayout];
 }
 - (BOOL)pointInside:(CGPoint)point withEvent:(UIEvent *)event {
     if(_suppressed || _padOff || !CGRectContainsPoint(self.bounds,point))return NO;
+    if(_sideControls){dm_companion_pad_layout p=self.sideGeometry;if(!CGRectContainsPoint(p.left,point)&&!CGRectContainsPoint(p.right,point))return NO;}
+    // Keyboard lifetime owns the game canvas. Drawing only owns it while the
+    // pad is suppressed; restored artwork must also restore its hit regions.
+    if(!_previewMode && _nativeSurface && !_sideControls && (dm_view_touch_context()&1))return NO;
     if(!_nativeSurface && !_sideControls)return [super pointInside:point withEvent:event];
-    if(!_sideControls && _fade.mode==2)return NO;
+    if(_fade.mode==2)return NO;
     if([self inSwap:point])return YES;
     if(_tap)return NO;
     if([self btnAt:point]>=0)return YES;
@@ -235,8 +265,15 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }   
     return [self moved:p group:@"rightStick" radius:[self stickR:1]];
 }
 
-- (CGRect)safe { return _sideControls ? self.bounds : UIEdgeInsetsInsetRect(self.bounds, self.safeAreaInsets); }
-- (CGRect)corner { if(_sideControls)return self.bounds; UIEdgeInsets i = self.safeAreaInsets; i.left *= K_CORNER_IN; i.right *= K_CORNER_IN; return UIEdgeInsetsInsetRect(self.bounds, i); }   // the rectangle the bottom-corner controls use
+- (UIEdgeInsets)controlInsets {
+    UIEdgeInsets i=self.safeAreaInsets;
+    // Outer-display controls use the full width, including the camera side.
+    // Keep the home-indicator inset; portrait companion geometry is separate.
+    if(front_controls_full_canvas())i.left=i.right=0;
+    return i;
+}
+- (CGRect)safe { return _sideControls ? self.bounds : UIEdgeInsetsInsetRect(self.bounds, self.controlInsets); }
+- (CGRect)corner { if(_sideControls)return self.bounds; UIEdgeInsets i = self.controlInsets; i.left *= K_CORNER_IN; i.right *= K_CORNER_IN; return UIEdgeInsetsInsetRect(self.bounds, i); }   // the rectangle the bottom-corner controls use
 - (CGFloat)u { return _sideControls ? self.sideGeometry.unit : MIN(self.bounds.size.height / 430.0, 1.3)*self.controlScale; }   // 1 = 430 points tall (iPhone Pro Max landscape)
 static CGPoint side(CGRect s, int right, CGFloat dx, CGFloat y) { return CGPointMake(right ? CGRectGetMaxX(s) - dx : CGRectGetMinX(s) + dx, y); }
 - (CGPoint)faceCenter {CGRect s=self.corner;CGFloat u=self.u;CGPoint p=_sideControls ? self.sideGeometry.face : side(s,1,K_FACE_X*u,CGRectGetMaxY(s)-K_PAD_Y*u);return [self moved:p group:@"face" radius:self.faceGap+self.faceR];}
@@ -244,38 +281,54 @@ static CGPoint side(CGRect s, int right, CGFloat dx, CGFloat y) { return CGPoint
 - (CGFloat)faceR { return _sideControls ? self.sideGeometry.face_r : K_FACE_R*self.u; }
 - (CGPoint)facePos:(int)b { CGPoint c = self.faceCenter; CGFloat g = self.faceGap;
     switch (b) { case B_A: return CGPointMake(c.x + g, c.y); case B_B: return CGPointMake(c.x, c.y + g); case B_X: return CGPointMake(c.x, c.y - g); default: return CGPointMake(c.x - g, c.y); } }
-- (CGPoint)stickHome {CGRect s=self.corner;CGPoint p=_sideControls ? self.sideGeometry.stick : side(s,0,K_STICK_X*self.u,CGRectGetMaxY(s)-K_PAD_Y*self.u);return [self moved:p group:@"leftStick" radius:[self stickR:0]];}   // the left stick's ring centre
+- (CGPoint)outerLeftStick {
+    CGFloat u=self.u;CGRect s=self.corner;
+    CGFloat x=CGRectGetMinX(self.safe)+K_ZL_X*u+MAX(K_ZL_R,K_L_R)*u*1.35+[self stickR:0]*K_STICK_GRAB+8*u;
+    return CGPointMake(MIN(CGRectGetMidX(s)-[self stickR:0],x),CGRectGetMaxY(s)-K_PAD_Y*u);
+}
+- (CGPoint)stickHome {CGRect s=self.corner;CGPoint p=_sideControls ? self.sideGeometry.stick : front_controls_full_canvas()?self.outerLeftStick:side(s,0,K_STICK_X*self.u,CGRectGetMaxY(s)-K_PAD_Y*self.u);return [self moved:p group:@"leftStick" radius:[self stickR:0]];}   // the left stick's ring centre
 - (CGPoint)stickCentre:(int)i { return i ? ([self fixedRight] ? self.rightHome : _rCentre) : self.stickHome; }
 - (CGFloat)stickR:(int)i { return _sideControls ? (i ? self.sideGeometry.right_r : self.sideGeometry.stick_r) : (i ? K_RSTICK_R : K_STICK_R)*self.u; }
 - (BOOL)inRightArea:(CGPoint)p { if([self fixedRight]){return dist(p,self.rightHome)<=[self stickR:1]*K_STICK_GRAB;} CGRect b = self.bounds; return p.x >= CGRectGetMaxX(b) - b.size.width * K_RSWIPE; }
-- (CGPoint)dpadCenter {CGRect s=self.corner;CGFloat u=self.u;CGPoint p=_sideControls ? self.sideGeometry.dpad : side(s,0,K_LOW_X*u,CGRectGetMaxY(s)-K_LOW_Y*u);return [self moved:p group:@"dpad" radius:self.dpadR];}
+- (CGPoint)dpadCenter {CGRect s=self.corner;CGFloat u=self.u;CGPoint p=_sideControls ? self.sideGeometry.dpad : side(s,0,K_LOW_X*u,CGRectGetMaxY(s)-K_LOW_Y*u);
+    if(!_sideControls && front_controls_full_canvas()){p=self.outerLeftStick;p.y-=[self stickR:0]*K_STICK_GRAB+self.dpadR*K_DPAD_GRAB+8*u;}
+    return [self moved:p group:@"dpad" radius:self.dpadR];}
 - (CGFloat)dpadR { return _sideControls ? self.sideGeometry.dpad_r : K_DPAD_R*self.u; }
 static BOOL isDrop(int b) { return b == B_ZL || b == B_L || b == B_ZR || b == B_R; }
 static BOOL isClick(int b) { return b == B_LS || b == B_RS; }
 - (CGPoint)dropCenter:(int)b { CGRect s = self.safe; CGFloat u = self.u; BOOL z = b == B_ZL || b == B_ZR;
     CGPoint p=_sideControls ? self.sideGeometry.shoulder[b==B_ZL ? 0 : b==B_L ? 1 : b==B_ZR ? 2 : 3] : side(s,b==B_ZR || b==B_R,(z ? K_ZL_X:K_L_X)*u,CGRectGetMinY(s)+(z ? K_ZL_Y:K_L_Y)*u);
+    if(!_sideControls && front_controls_full_canvas() && (b==B_ZL || b==B_L)){
+        // Stack the left shoulders in the lower rail, below the camera's
+        // middle-height strip. The left stick and D-pad have a separate lane.
+        p.y=CGRectGetMaxY(s)-(K_L_R*1.05+8)*u;
+        if(z)p.y-=((K_L_R+K_ZL_R)*1.05+12)*u;
+    }
     return [self moved:p group:(b==B_ZR || b==B_R) ? @"shoulderR":@"shoulderL" radius:[self dropR:b]*K_DROP_TIP];}
 - (CGFloat)dropR:(int)b { return _sideControls ? self.sideGeometry.shoulder_r : (b == B_ZL || b == B_ZR ? K_ZL_R : K_L_R)*self.u; }
-- (CGPoint)clickCenter:(int)b {CGRect s=self.safe;CGFloat u=self.u;CGPoint p=_sideControls ? self.sideGeometry.click[b==B_RS ? 1:0] : side(s,b==B_RS,K_CLICK_X*u,CGRectGetMinY(s)+K_ZL_Y*u);return [self moved:p group:b==B_RS ? @"clickR":@"clickL" radius:K_CLICK_R*u];}
+- (CGFloat)clickR { return _sideControls ? self.sideGeometry.click_r : K_CLICK_R*self.u; }
+- (CGPoint)clickCenter:(int)b {CGRect s=self.safe;CGFloat u=self.u;CGPoint p=_sideControls ? self.sideGeometry.click[b==B_RS ? 1:0] : side(s,b==B_RS,K_CLICK_X*u,CGRectGetMinY(s)+K_ZL_Y*u);return [self moved:p group:b==B_RS ? @"clickR":@"clickL" radius:self.clickR];}
 - (CGRect)pillRect:(int)b {
     if(_sideControls){dm_companion_pad_layout g=self.sideGeometry;CGPoint c=[self moved:g.menu[b==B_PLUS ? 1:0] group:b==B_PLUS ? @"plus":@"minus" radius:g.menu_size.width/2];return CGRectMake(c.x-g.menu_size.width/2,c.y-g.menu_size.height/2,g.menu_size.width,g.menu_size.height);}
     CGRect s = self.safe; CGFloat u = self.u, w = K_PILL_W * u, h = (_sideControls ? 36 : K_PILL_H) * u;
     CGPoint c = CGPointMake(CGRectGetMidX(s) + (b == B_PLUS ? K_PILL_DX : -K_PILL_DX) * u, CGRectGetMinY(s) + (_sideControls ? 28 : K_PILL_Y) * u);   // − on the left, + on the right
     c=[self moved:c group:b==B_PLUS ? @"plus":@"minus" radius:w/2];return CGRectMake(c.x-w/2,c.y-h/2,w,h);}
-- (CGPoint)swapCenter {CGRect s=self.safe;CGPoint p=_sideControls ? self.sideGeometry.swap : CGPointMake(CGRectGetMidX(s),CGRectGetMinY(s)+K_PILL_Y*self.u);return [self moved:p group:@"layout" radius:K_SWAP_R*self.u];}
+- (CGPoint)swapCenter {CGRect s=self.safe;CGPoint p=_sideControls ? self.sideGeometry.swap : CGPointMake(CGRectGetMidX(s),CGRectGetMinY(s)+K_PILL_Y*self.u);return [self moved:p group:@"layout" radius:self.swapR];}
+- (CGFloat)swapR { return _sideControls ? self.sideGeometry.swap_r : K_SWAP_R*self.u; }
 
 static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); }
 - (int)btnAt:(CGPoint)p {   // locked keys (tested on touch-down only, then locked)
     CGFloat u = self.u;
     for (int i = 0; i < (int)(sizeof k_btns / sizeof *k_btns); i++) { int b = k_btns[i];
         if (fullOnly(b) && !_full) continue;
-        BOOL hit = isDrop(b) ? dist(p, [self dropCenter:b]) <= [self dropR:b] * 1.35
-                 : isClick(b) ? dist(p, [self clickCenter:b]) <= K_CLICK_R * u * 1.35
-                 : CGRectContainsPoint(CGRectInset([self pillRect:b], -8 * u, -8 * u), p);
+        BOOL hit;
+        if(isDrop(b))hit=dist(p,[self dropCenter:b])<=[self dropR:b]*1.35;
+        else if(isClick(b))hit=dist(p,[self clickCenter:b])<=self.clickR*1.35;
+        else {CGRect r=[self pillRect:b];CGFloat dx=fmax(8*u,_sideControls?(44-r.size.width)/2:0),dy=fmax(8*u,_sideControls?(44-r.size.height)/2:0);hit=CGRectContainsPoint(CGRectInset(r,-dx,-dy),p);}
         if (hit) return b; }
     return -1;
 }
-- (BOOL)inSwap:(CGPoint)p { return dist(p, self.swapCenter) <= K_SWAP_R * self.u * 1.6; }
+- (BOOL)inSwap:(CGPoint)p { return _previewMode && dist(p, self.swapCenter) <= self.swapR * 1.6; }
 - (uint64_t)faceAt:(CGPoint)p {   // keys under the finger in the diamond (between two keys both count)
     uint64_t m = 0; CGFloat r = self.faceR * 1.25;
     for (int b = B_A; b <= B_Y; b++) if (dist(p, [self facePos:b]) <= r) m |= 1ull << b;
@@ -291,11 +344,17 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); 
     if (a < -22.5 && a > -157.5) m |= 1ull << B_DOWN;
     return m;
 }
-- (CGPoint)knobOffset:(int)i {   // knob offset from the stick centre (clamped to the stick radius)
+- (CGPoint)stickOffset:(int)i {   // complete HID throw, independent of knob artwork
     if (!_stick[i]) return CGPointZero;
     CGPoint h = [self stickCentre:i]; CGFloat dx = _stickNow[i].x - h.x, dy = _stickNow[i].y - h.y, d = hypot(dx, dy), R = [self stickR:i];
     if (d > R) { dx *= R / d; dy *= R / d; }
     return CGPointMake(dx, dy);
+}
+- (CGPoint)knobOffset:(int)i {
+    CGPoint p=[self stickOffset:i];CGFloat r=[self stickR:i];
+    // Keep companion artwork inside the ring without shortening the HID throw.
+    if(_sideControls && r>0){CGFloat travel=fmax(0,r-K_KNOB_R*self.u)/r;p.x*=travel;p.y*=travel;}
+    return p;
 }
 
 // ---- Touch ----
@@ -308,7 +367,7 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); 
         else if (c == C_SWAP) swap = YES; }
     int32_t ax[4] = {0};
     for (int i = 0; i < 2; i++) {
-        CGPoint o = [self knobOffset:i]; CGFloat R = [self stickR:i], d = hypot(o.x, o.y), dz = R * [self customNumber:@"deadZone" fallback:K_DEAD low:0 high:.3];
+        CGPoint o = [self stickOffset:i]; CGFloat R = [self stickR:i], d = hypot(o.x, o.y), dz = R * [self customNumber:@"deadZone" fallback:K_DEAD low:0 high:.3];
         if (d <= dz) continue;
         CGFloat m = fmin((d - dz) / (R * K_FULL - dz), 1) / d;   // outside the dead zone: 0 rising to full at the full-tilt radius
         ax[i * 2] = (int32_t)lrint(o.x * m * 32767); ax[i * 2 + 1] = (int32_t)lrint(-o.y * m * 32767);   // host: up is positive; rounded so full tilt is exactly 32767
@@ -436,6 +495,11 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
 - (void)artworkMode:(int)mode {_fade.mode=MAX(0,MIN(2,mode));_fade.session=0;if(_fade.mode==2 && !_sideControls)[self reset];[self updateArtwork];}
 - (void)artworkEvent {if(_nativeSurface && !_sideControls){dm_control_fade_event(&_fade,_owner.count>0,CACurrentMediaTime());[self updateArtwork];}}
 - (void)updateArtwork {
+    // Reuse the existing main-thread artwork tick; keyboard lifetime must not
+    // depend on finger-up events or add a rendering callback/timer.
+    if(!_previewMode && _nativeSurface){
+        front_native_ui_context(dm_view_touch_context());
+    }
     float opacity=1;
     if(_nativeSurface && !_sideControls)opacity=dm_control_fade_hidden(&_fade,CACurrentMediaTime()) ? 0:0.65;
     if(_previewMode)opacity=1;opacity*=[self customNumber:@"opacity" fallback:1 low:.25 high:1];
@@ -458,26 +522,26 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
     CGFloat u = self.u;
     [CATransaction begin]; [CATransaction setDisableActions:YES];
     _controls.frame = self.layer.bounds;
-    for (int b = B_A; b <= B_Y; b++) { CGPoint c = [self facePos:b]; setPath(_key[b], circlePath(c, self.faceR)); placeLabel(_label[b], c, 20 * u); }
+    for (int b = B_A; b <= B_Y; b++) { CGPoint c = [self facePos:b]; setPath(_key[b], circlePath(c, self.faceR)); placeLabel(_label[b], c, _sideControls?MAX(10,20*u):20*u); }
     for (int i = 0; i < (int)(sizeof k_btns / sizeof *k_btns); i++) { int b = k_btns[i];
         if (isDrop(b)) {
             BOOL right = b == B_ZR || b == B_R; CGPoint c = [self dropCenter:b];
-            setPath(_key[b], dropPath(c, [self dropR:b], right ? -M_PI_4 : -3 * M_PI_4, 4 * u)); placeLabel(_label[b], c, 16 * u);   // tip toward the near top corner
+            setPath(_key[b], dropPath(c, [self dropR:b], right ? -M_PI_4 : -3 * M_PI_4, 4 * u)); placeLabel(_label[b], c, _sideControls?MAX(8,16*u):16*u);   // tip toward the near top corner
         } else if (isClick(b)) {
-            CGPoint c = [self clickCenter:b]; setPath(_key[b], circlePath(c, K_CLICK_R * u)); placeLabel(_label[b], c, 13 * u);
+            CGPoint c = [self clickCenter:b]; setPath(_key[b], circlePath(c, self.clickR)); placeLabel(_label[b], c, _sideControls?MAX(8,13*u):13*u);
         } else {
             CGRect rc = [self pillRect:b];
-            setPath(_key[b], CGPathCreateWithRoundedRect(rc, rc.size.height / 2, rc.size.height / 2, NULL)); placeLabel(_label[b], CGPointMake(CGRectGetMidX(rc), CGRectGetMidY(rc)), 18 * u);
+            setPath(_key[b], CGPathCreateWithRoundedRect(rc, rc.size.height / 2, rc.size.height / 2, NULL)); placeLabel(_label[b], CGPointMake(CGRectGetMidX(rc), CGRectGetMidY(rc)), _sideControls?MAX(9,18*u):18*u);
         }
     }
     static const struct { int b; CGFloat angle; } arms[] = {{B_UP, 0}, {B_RIGHT, M_PI_2}, {B_DOWN, M_PI}, {B_LEFT, -M_PI_2}};   // the same arm in 90° steps
     for (int i = 0; i < 4; i++) setPath(_key[arms[i].b], armPath(self.dpadCenter, self.dpadR, K_ARM_W * u, K_ARM_IN * u, arms[i].angle, 6 * u));
-    CGPoint sc = self.swapCenter; setPath(_swap, circlePath(sc, K_SWAP_R * u)); placeLabel(_swapLabel, sc, 12 * u);
+    CGRect menu=self.settingsRect;CGPoint sc=CGPointMake(CGRectGetMidX(menu),CGRectGetMidY(menu));setPath(_swap,circlePath(sc,menu.size.height/2));placeLabel(_swapLabel,sc,12*u);
     setPath(_ring, circlePath(self.stickHome, [self stickR:0]));
     if([self fixedRight]){
         setPath(_rightRing,circlePath(self.rightHome,[self stickR:1]));
         CGFloat k=K_KNOB_R*u;_rightKnob.bounds=CGRectMake(0,0,2*k,2*k);
-        setPath(_rightKnob,circlePath(CGPointMake(k,k),k));placeLabel(_rightLabel,CGPointMake(k,k),13*u);
+        setPath(_rightKnob,circlePath(CGPointMake(k,k),k));placeLabel(_rightLabel,CGPointMake(k,k),_sideControls?MAX(8,13*u):13*u);
     }
     CGFloat k = K_KNOB_R * u; _knob.bounds = CGRectMake(0, 0, 2 * k, 2 * k);
     setPath(_knob, circlePath(CGPointMake(k, k), k));
@@ -545,9 +609,14 @@ UIView *dm_touch_controls_preview(BOOL portrait) {DmGamepad *v=[[DmGamepad alloc
 void dm_touch_controls_configure(UIView *view,NSDictionary *profile,BOOL portrait){[(DmGamepad *)view configureProfile:profile portrait:portrait];}
 NSArray *dm_touch_controls_handles(UIView *view){return [(DmGamepad *)view editingHandles];}
 void dm_gamepad_presentation(BOOL dock, BOOL suppressed) { [g_view presentationCompanion:dock suppressed:suppressed]; }
+void dm_gamepad_companion_frame(UIView *parent,CGRect frame) { [g_view companionCanvas:CGRectIsEmpty(frame)?CGRectZero:[g_view convertRect:frame fromView:parent]]; }
 void dm_gamepad_native_surface(BOOL enabled) { [g_view nativeSurface:enabled]; }
 void dm_gamepad_artwork_mode(int mode) { [g_view artworkMode:mode]; }
+int dm_gamepad_layout(void) { return [g_view selectedLayout]; }
+void dm_gamepad_select_layout(int layout) { [g_view selectLayout:layout]; }
+CGRect dm_gamepad_settings_rect(UIView *parent) { return g_view ? [g_view convertRect:[g_view settingsRect] toView:parent] : CGRectNull; }
+CGFloat dm_gamepad_settings_icon_size(void) { return g_view ? [g_view settingsIconSize]:18; }
 void dm_gamepad_reset(void) {   // On resign active: release everything (a key held while switching away and released in background gets no "release")
-    dispatch_async(dispatch_get_main_queue(), ^{ [g_view reset]; });
+    if(NSThread.isMainThread)[g_view reset];else dispatch_async(dispatch_get_main_queue(), ^{ [g_view reset]; });
     pthread_mutex_lock(&g_mu); g_pad_btn = 0; g_shake_btn = 0; g_pad_lx = g_pad_ly = g_pad_rx = g_pad_ry = 0; pthread_mutex_unlock(&g_mu); publish();
 }

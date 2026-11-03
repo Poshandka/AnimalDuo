@@ -17,10 +17,12 @@
 #include "haptics_apple.h"
 #import "save_sync_apple.h"
 #include "companion.h"
+#include "present_layout.h"
 #include <signal.h>
 #include <math.h>
 
 static CAMetalLayer *g_layer;
+int front_present_mode(void) { return dm_view_available() && dm_view_aspect()>0?DM_PRESENT_EXPAND:DM_PRESENT_FIT; }
 static uint64_t g_btn;
 static int g_w, g_a, g_s, g_d;
 static int g_input_on = 1;   // main thread: the game window is key, so its keyboard, mouse and controllers reach the game (input_release / input_resume)

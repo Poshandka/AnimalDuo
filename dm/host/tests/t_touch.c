@@ -6,6 +6,7 @@
 typedef struct { uint32_t id; float x, y; } dm_touch;
 void dm_touch_set(const dm_touch *t, int n);
 int touch_fill(void *out, uint64_t now_ns);
+int dm_view_touch(float *x,float *y) { (void)x;(void)y;return 1; }
 static int fails, cases;
 typedef struct { int64_t dt; uint32_t attr; int32_t fid, x, y; } want_pt;
 static void expect(const char *what, uint64_t now, int64_t samp, int n, const want_pt *w) {

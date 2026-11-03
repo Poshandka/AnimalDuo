@@ -16,7 +16,7 @@ static NvShader *shader(NSString *path) {
     return vs;
 }
 static void state(int what,void *control) {p_tf_state s={.what=what,.ctl=(uint64_t)control};state_op(OP_TF_STATE,&s);tf_state_gpu(&s);}
-static void bind(void *output,size_t size) {p_tf_bind b={.index=0,.addr=(uint64_t)output,.size=size};state_op(OP_TF_BIND,&b);}
+static void bind_output(void *output,size_t size) {p_tf_bind b={.index=0,.addr=(uint64_t)output,.size=size};state_op(OP_TF_BIND,&b);}
 static void record(const float *p,unsigned n) {const float want[5]={n,n+10,n+40,n+50,n+60};CHECK(!memcmp(p,want,sizeof want),"interleaved captured values and order");}
 static uint8_t *commands;static size_t used;
 static void emit(unsigned op,const void *p,size_t n) {size_t z=(8+n+7)&~7ull;op_hdr h={op,(uint32_t)z};memcpy(commands+used,&h,8);if(n)memcpy(commands+used+8,p,n);used+=z;}
@@ -27,7 +27,7 @@ int main(int argc,char **argv) { @autoreleasepool {
     float *output=(float *)memory;uint32_t *ctl=(uint32_t *)((uint8_t *)memory+4096),*ctl2=ctl+16,*ctl3=ctl+32;
     NvProg *pr=[NvProg new];pr->sh[0]=shader(@(argv[1]));
     p_draw dw={.prim=0,.first=2,.count=3,.instances=1};S.rast_discard=1;
-    mtl_sub_begin();bind(output,100);state(0,ctl);tf_draw(pr,&dw,NULL);state(2,ctl);finish();
+    mtl_sub_begin();bind_output(output,100);state(0,ctl);tf_draw(pr,&dw,NULL);state(2,ctl);finish();
     CHECK(ctl[0]==60&&ctl[4]==3&&ctl[5]==1,"pause saves byte offsets and draw count");
     for(unsigned i=0;i<3;i++)record(output+5*i,i+2);
     mtl_sub_begin();state(3,ctl);dw.first=9;tf_draw(pr,&dw,NULL);state(1,ctl2);finish();
@@ -44,7 +44,7 @@ int main(int argc,char **argv) { @autoreleasepool {
     consumer->ae=[consumer->discard_fn newArgumentEncoderWithBufferIndex:0];consumer->rf.nb=1;consumer->rf.b[0]=(nvn_rbind){.kind=NVN_RB_SBUFP,.rw=1,.reg=0,.aid=0};
     NvProg *drawpr=[NvProg new];drawpr->sh[0]=consumer;static prog_t pg={.serial=910601};serial_put(pg.serial,drawpr);
     tex_t target={.magic=MAGIC('T','E','X',0),.serial=910602};target.d=(nvn_texdesc){.target=NVN_TEXTURE_TARGET_2D,.format=NVN_FORMAT_RGBA8,.width=8,.height=8,.depth=1,.levels=1,.samples=1};
-    memset(output,0,256);mtl_sub_begin();bind(output,100);state(0,ctl3);
+    memset(output,0,256);mtl_sub_begin();bind_output(output,100);state(0,ctl3);
     void *mb;uint64_t off,gpu;mtl_gpu_addr((uint64_t)args,4,&mb,&off,&gpu);
     void *sb;uint64_t so,sg;mtl_gpu_addr((uint64_t)source,4,&sb,&so,&sg);
     enc_b_copy_buffer(blit(),(__bridge id<MTLBuffer>)sb,so,(__bridge id<MTLBuffer>)mb,off,4);
@@ -66,7 +66,7 @@ int main(int argc,char **argv) { @autoreleasepool {
     pr->sh[0]=shader([@(argv[1]) stringByAppendingString:@".split"]);
     pr->sh[0]->tf_stride[0]=12;pr->sh[0]->tf_stride[1]=pr->sh[0]->tf_stride[2]=4;
     float *second=output+128,*third=output+160;memset(output,0,1024);
-    mtl_sub_begin();bind(output,36);
+    mtl_sub_begin();bind_output(output,36);
     p_tf_bind b1={.index=1,.addr=(uint64_t)second,.size=12},b2={.index=2,.addr=(uint64_t)third,.size=12};state_op(OP_TF_BIND,&b1);state_op(OP_TF_BIND,&b2);
     state(0,ctl);dw.first=4;dw.count=3;tf_draw(pr,&dw,NULL);state(1,ctl);finish();
     CHECK(ctl[0]==36&&ctl[1]==12&&ctl[2]==12&&ctl[4]==3,"three streams advance by their own byte strides");

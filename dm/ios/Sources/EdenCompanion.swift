@@ -230,21 +230,26 @@ struct EdenFrame {
 
 // Body and navigation have independent transforms so navigation always stays at the bottom.
 struct EdenSurfaceLayout {
-    let body:CGRect,footer:CGRect
+    let body:CGRect,footer:CGRect,content:CGRect,left:CGRect,right:CGRect
     let bodyScale:Double,navScale:Double
     let bodyOffset:CGPoint,navOffset:CGPoint
-    init(_ size:CGSize) {
-        let h=dm_companion_footer_height(size),navWidth=max(1,size.width)
-        body=CGRect(x:0,y:0,width:size.width,height:max(1,size.height-h))
-        footer=CGRect(x:0,y:body.maxY,width:navWidth,height:h)
-        bodyScale=max(0.001,min(size.width/1240,body.height/968))
-        bodyOffset=CGPoint(x:(size.width-1240*bodyScale)/2,y:(body.height-968*bodyScale)/2)
-        navScale=max(0.001,min(navWidth/1240,h/112))
-        navOffset=CGPoint(x:(navWidth-1240*navScale)/2,y:body.maxY+(h-112*navScale)/2-968*navScale)
+    init(_ size:CGSize, controls:Bool=false) {
+        let shared=dm_companion_surface_make(size,controls ? 1:0)
+        body=shared.body;footer=shared.footer;content=shared.content;left=shared.left;right=shared.right
+        bodyScale=shared.body_scale;bodyOffset=shared.body_offset
+        navScale=shared.nav_scale;navOffset=shared.nav_offset
     }
     func point(_ p:CGPoint)->CGPoint {
         let nav=p.y>=footer.minY,s=nav ? navScale:bodyScale,o=nav ? navOffset:bodyOffset
         return CGPoint(x:(p.x-o.x)/s,y:(p.y-o.y)/s)
+    }
+    func tapPoint(_ p:CGPoint)->CGPoint {
+        var logical=point(p)
+        // The authored navigation art is letterboxed inside the physical bar.
+        // Its entire height selects the same row, including the compact-width
+        // top/bottom padding. Body coordinates and drag transforms stay exact.
+        if footer.contains(p){logical.y=968+112/2}
+        return logical
     }
 }
 
@@ -311,7 +316,9 @@ struct EdenSurfaceLayout {
             model.load(key){[weak self] data,w,h in
                 var image:CGImage?
                 if let data,w>0,h>0,w<=4096,h<=4096,data.count==w*h*4,let provider=CGDataProvider(data:data as CFData) {
-                    image=CGImage(width:w,height:h,bitsPerComponent:8,bitsPerPixel:32,bytesPerRow:w*4,space:CGColorSpaceCreateDeviceRGB(),bitmapInfo:CGBitmapInfo(rawValue:CGBitmapInfo.byteOrder32Big.rawValue|CGImageAlphaInfo.last.rawValue),provider:provider,decode:nil,shouldInterpolate:true,intent:.defaultIntent)
+                    // The module emits sRGB RGBA bytes. DeviceRGB has no stable
+                    // gamut and can reinterpret app-icon colours on P3 displays.
+                    image=CGImage(width:w,height:h,bitsPerComponent:8,bitsPerPixel:32,bytesPerRow:w*4,space:CGColorSpace(name:CGColorSpace.sRGB)!,bitmapInfo:CGBitmapInfo(rawValue:CGBitmapInfo.byteOrder32Big.rawValue|CGImageAlphaInfo.last.rawValue),provider:provider,decode:nil,shouldInterpolate:true,intent:.defaultIntent)
                 }
                 let result=image
                 Task{@MainActor in
@@ -536,13 +543,17 @@ private func edenLabelKey(_ text:String,_ scale:Double,_ color:Any?)->String {
         let bodyNodes=nodes.filter{$0.rect.minY<960},navNodes=nodes.filter{$0.rect.minY>=960}
         let keys=assetKeys(nodes,f)
         GeometryReader{geometry in
+            #if os(iOS)
+            let layout=EdenSurfaceLayout(geometry.size,controls:!model.externalController)
+            #else
             let layout=EdenSurfaceLayout(geometry.size)
+            #endif
             Canvas{context,_ in
                 // Bleed the original background to every edge; content retains its aspect.
                 if let background=bodyNodes.first(where:{$0.kind=="image" && $0.rect.width==1240 && $0.rect.height==1080}),let image=images.get(f.source(background)) {
                     context.draw(Image(decorative:image,scale:1),in:CGRect(origin:.zero,size:geometry.size))
                 }
-                var body=context;body.clip(to:Path(layout.body));body.translateBy(x:layout.bodyOffset.x,y:layout.bodyOffset.y);body.scaleBy(x:layout.bodyScale,y:layout.bodyScale);draw(bodyNodes,f,&body)
+                var body=context;body.clip(to:Path(layout.content));body.translateBy(x:layout.bodyOffset.x,y:layout.bodyOffset.y);body.scaleBy(x:layout.bodyScale,y:layout.bodyScale);draw(bodyNodes,f,&body)
                 var nav=context;nav.clip(to:Path(layout.footer));nav.translateBy(x:layout.navOffset.x,y:layout.navOffset.y);nav.scaleBy(x:layout.navScale,y:layout.navScale);draw(navNodes,f,&nav)
 
             }
@@ -565,7 +576,7 @@ private func edenLabelKey(_ text:String,_ scale:Double,_ color:Any?)->String {
                         if let name=target.data["drop_action"] as? String,name.hasPrefix("bag.drop."),let slot=Int(name.dropFirst(9)),source.payload<40{_ = model.movePocket(from:source.payload,to:slot,expected:dragToken)}
                         else {var data=target.data;data["on_tap"]=data["drop_action"];data["payload"]=String(source.payload);action(EdenNode(id:target.id,data:data,rect:target.rect,clip:target.clip),f)}
                     }
-                } else if distance<=12{tap(p,nodes,f)}
+                } else if distance<=12{tap(layout.tapPoint(g.location),nodes,f)}
                 dragging=nil;dragPoint = .zero;dragToken="";if !pinchTouch{endInteraction()}
             })
             .simultaneousGesture(MagnificationGesture().updating($pinchTouch){_,active,_ in active=true}.onChanged{v in beginInteraction();if f.page=="map" {mapZoom=min(3,max(1,pinchStart*v));mapPan=clampedPan(mapPan,f)}}.onEnded{_ in pinchStart=mapZoom})

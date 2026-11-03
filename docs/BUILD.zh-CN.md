@@ -6,6 +6,8 @@
 
 AnimalDuo 公开的是《集合啦！动物森友会》3.0.3 的 Apple 移植增强源码。游戏代码通过宿主原生执行，图形接口由 Metal 实现，iPad 竖屏副屏使用 Eden Duo 的动森模块。
 
+当前公开源码对应应用 **3.0.51**，游戏内容仍为 **3.0.3**。更新说明见 [3.0.51](../RELEASES/3.0.51.md)。
+
 本仓库不提供游戏包、主机密钥、固件、玩家存档、生成的岛民模板或已签名安装包。构建时使用自己的匹配资源，所有提取文件和输出都应放在源码目录之外。
 
 ## 平台与验证
@@ -13,7 +15,7 @@ AnimalDuo 公开的是《集合啦！动物森友会》3.0.3 的 Apple 移植增
 | 平台 | 当前方案 |
 | --- | --- |
 | iPad | 通用 arm64 iOS 构建；竖屏为游戏加副屏，横屏为完整游戏画面及可选触控按键。 |
-| iPhone | 与 iPad 共用源码／通用安装包，使用横屏布局。 |
+| iPhone | 与 iPad 共用源码；普通 iPhone 默认全屏横屏，Duo 外屏横屏、展开内屏依实际尺寸布局，竖屏主副屏各半。 |
 | Apple Silicon Mac | 原生 arm64 宿主；历史发布包使用 Apple-m1 CPU 基线，最低 macOS 27。Mac 原生启动器不提供 Swift 岛民管理界面。 |
 
 历史构建使用 Xcode 27.1，iOS 最低目标为 26。构建目标不是所有设备都已经实测的保证；M4 Mac 的测试结果也不等同于 iPad、iPhone 或 M2 的实测结果。
@@ -79,15 +81,21 @@ iOS 使用 [build_ipa.sh](../dm/ios/tools/build_ipa.sh)。对应功能构建需�
 | DM_RESIDENT_CATALOG | 在外部生成的岛民目录 JSON。 |
 | DM_RESIDENT_LICENSE | 随模板提供的许可声明文件。 |
 
-历史通用配置还使用 DM_LANG=zh-Hans 和 DM_PSO_GPUS=none。具体命令、输出目录和先后顺序见 [BUILD-RESIDENT-DIALOGUE-FIX.txt](../BUILD-RESIDENT-DIALOGUE-FIX.txt)及[底层开发文档](development.md)。生成的 Gen 目录是构建输出，不应提交。
+历史通用配置还使用 DM_LANG=zh-Hans 和 DM_PSO_GPUS=none。当前布局构建说明见 [BUILD-PANEL-CONTROLS.txt](../BUILD-PANEL-CONTROLS.txt)。使用准备的 Xcode 项目构建 Release generic/platform=iOS，并设置 CURRENT_PROJECT_VERSION=3.0.51 与禁用签名；基础资源准备步骤见 [BUILD-RESIDENT-DIALOGUE-FIX.txt](../BUILD-RESIDENT-DIALOGUE-FIX.txt)及[底层开发文档](development.md)。生成的 Gen 目录是构建输出，不应提交。
 
 Mac 使用 [pack_app.py](../dm/mac/pack_app.py)，传入匹配的宿主、重写模块、合并 RomFS、Mac 着色器库、配置表、字体和 DLC。需要启动时的云存档入口时使用 --cloud-save-setup。Mac 的本地临时签名与 iOS 的未签名打包是两套流程。
 
 公开仓库不包含 Apple 签名身份或设备配置。iOS 构建产物为未签名 IPA，需要使用自己的侧载方式；更新已有安装时保持安装身份，先备份存档。
 
+## 资源保留与薄更新
+
+资源安装实现位于 ResourceStore.inc／ResourceInstallUI.inc，资源描述与打包工具见 dm/ios/tools/persistent_resources.py。首次安装应由自己的匹配资源生成完整描述及安装包，先完成资源校验和安装；后续兼容更新可以只更新程序并复用 Application Support 中的不可变资源。
+
+不能用薄更新建立一份全新安装，也不能用不匹配的资源描述跳过校验。卸载或变更应用数据容器会失去保留的资源和本机数据；游戏／着色器链变化可能需要重新生成匹配资源。存档与云同步格式沿用当前实现。
+
 ## 游戏中的功能
 
-**副屏与按键。** iPad 竖屏上方为完整游戏画面，下方为六页副屏，底栏置底、触控按键分布在左右两侧。操作副屏时会暂时隐藏按键。横屏隐藏副屏；没有实体手柄时使用淡色触控按键，持续操作约 8 秒后隐藏图案但仍能按原位置操作，停止约 1.5 秒后恢复。手动隐藏会关闭虚拟按键触控，与自动淡出不同。按键布局可以单独调整横竖屏配置。
+**副屏与按键。** iPad 竖屏上方为完整游戏画面，下方为六页副屏，底栏置底、触控按键分布在左右两侧。3.0.51 在左右侧框内放大按键，并上移＋／−；操作副屏、背包及上屏键盘或公告栏绘画时，下屏按键持续显示。横屏隐藏副屏；没有实体手柄时默认持续显示触控按键，也可在按键菜单选择自动淡化：持续操作约 8 秒后隐藏图案但仍能按原位置操作，停止约 1.5 秒后恢复。手动隐藏会关闭虚拟按键触控，与自动淡出不同。按键布局可以单独调整横竖屏配置。
 
 **背包。** 点选物品后可调用游戏允许的原生操作；支持拖动、点选移动、交换和整理。读盘、对话、联机或物品状态变化时，操作可能暂时不可用。修改通过正常游戏保存落盘。
 

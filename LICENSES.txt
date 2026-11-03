@@ -1,5 +1,5 @@
-Animal Crossing resident-dialogue update, 2026-10-30.
-Complete corresponding source: AnimalCrossing-Resident-Dialogue-Fix-source.zip.
+Animal Crossing iPhone/iPad portrait Duo, 2026-11-01.
+Complete corresponding source: AnimalCrossing-iPhone-Duo-source.zip.
 The matching unmodified NHSE template source is also included in that archive.
 
 Eden Duo companion integration for nxnative
@@ -1868,3 +1868,19 @@ may consider it more useful to permit linking proprietary applications with
 the library.  If this is what you want to do, use the GNU Lesser General
 Public License instead of this License.  But first, please read
 <https://www.gnu.org/licenses/why-not-lgpl.html>.
+
+Adaptive folding camera build, 2026-11-01: initial function leads and the redundant-minimap-clip finding from https://github.com/Bacondude117/ACNH-3.0.X-Ultrawide (MIT No Attribution). License text: dm/games/01006F8002326000/view.LICENSE. Corresponding source archive: AnimalCrossing-iPhone-Duo-Expanded-View-source.zip.
+
+Native panel composition build, 2026-11-02. Corresponding application source: AnimalCrossing-iPad-iPhone-Native-Panels-source.zip. The adaptive camera's retained MIT-0 notice is dm/games/01006F8002326000/view.LICENSE.
+
+Controls menu and startup handoff build, 2026-11-02. Corresponding application source: AnimalCrossing-iPad-iPhone-Controls-Menu-source.zip. The retained adaptive-view MIT-0 notice is dm/games/01006F8002326000/view.LICENSE.
+
+Control alignment and lower shoulders build, 2026-11-02. Corresponding application source: AnimalCrossing-iPad-iPhone-Control-Alignment-source.zip. The retained adaptive-view MIT-0 notice is dm/games/01006F8002326000/view.LICENSE.
+
+Drawing recovery and portrait half-turn build, 2026-11-02. Corresponding application source: AnimalCrossing-iPad-iPhone-Input-Recovery-source.zip. The retained adaptive-view MIT-0 notice is dm/games/01006F8002326000/view.LICENSE.
+
+Inner-display direction redesign, 2026-11-02. Corresponding source: AnimalCrossing-iPad-iPhone-Inner-Rotation-source.zip. Retained adaptive-view MIT-0 notice: dm/games/01006F8002326000/view.LICENSE.
+
+Stable display and persistent-resource installer, 2026-11-02. Corresponding source: AnimalCrossing-iPad-iPhone-Stable-Resources-source.zip. Full and thin device packages share that executable and source.
+
+Larger persistent portrait companion controls, 2026-11-03. Corresponding source: AnimalCrossing-iPad-iPhone-Panel-Controls-source.zip. Modified Eden Duo components retain GPL-3.0-or-later notices.

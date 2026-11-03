@@ -39,7 +39,8 @@ int main(void) {
     assert(!mprotect(p,size,PROT_READ));assert(!dm_companion_guest_write_batch(ops,1));
     assert(!munmap(p,size));
     assert(!dm_companion_guest_read((uintptr_t)p,buf,1)); // Range metadata can race a guest decommit.
-    const CGRect safe[]={CGRectMake(0,24,1024,1322),CGRectMake(0,24,834,1150),CGRectMake(8,30,728,1080),CGRectMake(0,0,500,700)};
+    const CGRect safe[]={CGRectMake(0,24,1024,1322),CGRectMake(0,24,834,1150),CGRectMake(8,30,728,1080),CGRectMake(0,0,500,700),
+        CGRectMake(0,59,393,759),CGRectMake(0,62,402,778),CGRectMake(0,59,430,839),CGRectMake(0,20,375,647)};
     for(unsigned i=0;i<sizeof safe/sizeof *safe;i++){
         dm_companion_layout l=dm_companion_screen_layout(safe[i],1,1);
         assert(CGRectContainsRect(safe[i],l.game) && CGRectContainsRect(safe[i],l.panel));
@@ -52,6 +53,12 @@ int main(void) {
         assert(CGRectContainsRect(l.controls,l.left) && CGRectContainsRect(l.controls,l.right));
         assert(CGRectContainsRect(l.panel,l.left) && CGRectContainsRect(l.panel,l.right));
         dm_companion_pad_layout p=dm_companion_pad_geometry(l.controls.size);
+        for(int right=0;right<2;right++){
+            CGRect group=dm_companion_pad_group(p,right),rail=right?p.right:p.left;
+            assert(fabs(CGRectGetMidX(group)-CGRectGetMidX(rail))<1e-9);
+            assert(fabs(CGRectGetMidY(group)-CGRectGetMidY(rail))<1e-9);
+            assert(CGRectContainsRect(rail,group));
+        }
         const CGPoint left[]={p.stick,p.dpad,p.shoulder[0],p.shoulder[1],p.click[0],p.menu[0],p.swap};
         const CGPoint right[]={p.face,p.right_stick,p.shoulder[2],p.shoulder[3],p.click[1],p.menu[1]};
         for(unsigned k=0;k<sizeof left/sizeof *left;k++)assert(CGRectContainsPoint(p.left,left[k]));
@@ -60,10 +67,17 @@ int main(void) {
         assert(dm_companion_pad_contains(l.controls.size,p.stick) && dm_companion_pad_contains(l.controls.size,p.face));
         assert(p.face.x-p.face_gap-p.face_r>=p.right.origin.x);
         assert(p.face.x+p.face_gap+p.face_r<=CGRectGetMaxX(p.right));
-        assert(p.stick.x-p.stick_r>=0 && p.stick.x+p.stick_r<=p.left.size.width);
+        assert(p.stick.x-p.stick_r>=CGRectGetMinX(p.left) && p.stick.x+p.stick_r<=CGRectGetMaxX(p.left));
         assert(CGRectGetMaxY(l.controls)<CGRectGetMaxY(safe[i]));
         assert(p.menu[0].y+p.menu_size.height/2<l.controls.size.height);
         assert(p.dpad.y+p.dpad_r<l.controls.size.height && p.right_stick.y+p.right_r<l.controls.size.height);
+        if(safe[i].size.width>=375 && safe[i].size.width<=440){
+            assert(p.face_r>0 && p.stick_r>0 && p.click_r>0);
+            // Compact artwork fits its reserved column; the menu keeps its
+            // separate minimum target without borrowing from the content.
+            assert(dm_companion_pad_menu_hit(p,0).size.height>=44);
+            assert(p.shoulder[1].x-p.shoulder[0].x>p.shoulder_r*2*1.35);
+        }
         assert(!CGRectIntersectsRect(l.game,l.controls));
         dm_companion_layout pad=dm_companion_screen_layout(safe[i],1,0);
         assert(CGRectIsEmpty(pad.controls) && CGRectEqualToRect(pad.panel,l.panel) && CGRectEqualToRect(pad.game,l.game));
@@ -72,25 +86,50 @@ int main(void) {
         assert(CGRectContainsRect(safe[i],wide.game));
         assert(fabs(wide.game.size.width/wide.game.size.height-16.0/9.0)<1e-9);
     }
+    const CGSize panels[]={{375,538},{402,552},{469,334.5},{669,475.5},{834,690},{1024,750}};
+    for(unsigned i=0;i<sizeof panels/sizeof *panels;i++){
+        dm_companion_surface_layout s=dm_companion_surface_make(panels[i],1);
+        assert(s.footer.size.width==panels[i].width && CGRectGetMaxY(s.footer)==panels[i].height);
+        assert(!CGRectIntersectsRect(s.left,s.content) && !CGRectIntersectsRect(s.right,s.content));
+        CGRect authored=CGRectMake(s.body_offset.x,s.body_offset.y,1240*s.body_scale,968*s.body_scale);
+        assert(CGRectContainsRect(CGRectInset(s.content,-1e-7,-1e-7),authored));
+        dm_companion_pad_layout p=dm_companion_pad_geometry_regions(s.body.size,1,s.left,s.right);
+        for(int side=0;side<2;side++){
+            CGRect box=dm_companion_pad_group(p,side),frame=side?s.right:s.left;
+            assert(CGRectContainsRect(CGRectInset(frame,-1e-7,-1e-7),box));
+            assert(!CGRectIntersectsRect(box,s.content));
+            assert(fabs(CGRectGetMidX(box)-CGRectGetMidX(frame))<1e-7 && fabs(CGRectGetMidY(box)-CGRectGetMidY(frame))<1e-7);
+        }
+        dm_companion_surface_layout unreserved=dm_companion_surface_make(panels[i],0);
+        assert(CGRectEqualToRect(unreserved.body,unreserved.content));
+        assert(fabs(unreserved.body_scale-fmin(panels[i].width/1240,unreserved.body.size.height/968))<1e-9);
+    }
+    const CGFloat widths[]={375,393,402,430,500,669,768,834,1024},heights[]={250,280,300,414,600,900},scales[]={.65,1,1.35};
+    for(unsigned i=0;i<sizeof widths/sizeof *widths;i++)for(unsigned j=0;j<sizeof heights/sizeof *heights;j++)for(unsigned k=0;k<sizeof scales/sizeof *scales;k++){
+        dm_companion_pad_layout p=dm_companion_pad_geometry_scaled(CGSizeMake(widths[i],heights[j]),scales[k]);
+        for(int side=0;side<2;side++){
+            CGRect box=dm_companion_pad_group(p,side),region=dm_companion_pad_region(p,side),rail=side?p.right:p.left;
+            if(!CGRectContainsRect(CGRectInset(region,-1e-7,-1e-7),box))fprintf(stderr,"rail fit %.0fx%.0f scale %.2f side %d: unit %g box %g %g %g %g region %g %g %g %g\n",widths[i],heights[j],scales[k],side,p.unit,box.origin.x,box.origin.y,box.size.width,box.size.height,region.origin.x,region.origin.y,region.size.width,region.size.height);
+            assert(CGRectContainsRect(CGRectInset(region,-1e-7,-1e-7),box));
+            assert(fabs(CGRectGetMidX(box)-CGRectGetMidX(rail))<1e-7 && fabs(CGRectGetMidY(box)-CGRectGetMidY(rail))<1e-7);
+            assert(dm_companion_pad_menu_hit(p,side).size.height>=44);
+            CGPoint lower=side?p.right_stick:p.dpad;
+            CGFloat extent=side?dm_companion_pad_stick_extent(p,1):p.dpad_r*1.3;
+            CGPoint upper=side?p.face:p.stick;
+            CGFloat upper_extent=side?p.face_gap+p.face_r*1.25:dm_companion_pad_stick_extent(p,0);
+            assert(CGRectGetMinY(dm_companion_pad_menu_hit(p,side))>=upper.y+upper_extent+5.99);
+            assert(CGRectGetMaxY(dm_companion_pad_menu_hit(p,side))<=lower.y-extent-5.99);
+        }
+    }
     assert(CGRectIsEmpty(dm_companion_screen_layout(CGRectMake(0,0,0,800),1,1).panel));
     assert(CGRectIsEmpty(dm_companion_screen_layout(CGRectMake(0,0,NAN,800),1,1).panel));
-    // Overlapping operations must keep controls away until every operation completes.
-    dm_companion_control_state c={0};
-    assert(!dm_companion_control_hidden(&c,1,0,0));
-    assert(dm_companion_control_activity(&c,DM_UI_TOUCH,1,1));
-    assert(dm_companion_control_hidden(&c,1,0,1));
-    assert(!dm_companion_control_activity(&c,DM_UI_TOUCH,1,1.2));
-    assert(dm_companion_control_activity(&c,DM_UI_MODE,1,1.3));
-    assert(dm_companion_control_activity(&c,DM_UI_TOUCH,0,2));
-    assert(dm_companion_control_hidden(&c,1,0,10));
-    assert(dm_companion_control_activity(&c,DM_UI_NATIVE,1,10));
-    assert(dm_companion_control_activity(&c,DM_UI_MODE,0,11));
-    assert(dm_companion_control_hidden(&c,1,0,20));
-    assert(dm_companion_control_activity(&c,DM_UI_NATIVE,0,20));
-    assert(dm_companion_control_hidden(&c,1,0,21.09));
-    assert(!dm_companion_control_hidden(&c,1,0,21.11));
-    assert(!dm_companion_control_activity(&c,8,1,22));
-    assert(dm_companion_control_hidden(&c,0,0,100) && dm_companion_control_hidden(&c,1,1,100));
+    // Reserved portrait rails stay available; only presentation and explicit
+    // controller/direct-touch choices can hide them.
+    for(int mode=0;mode<3;mode++){
+        assert(dm_companion_control_hidden(1,0,mode)==(mode==2));
+        assert(dm_companion_control_hidden(0,0,mode));
+        assert(dm_companion_control_hidden(1,1,mode));
+    }
     // Auto fade changes only presentation; a held virtual input remains owned by UIKit.
     dm_control_fade f={0};dm_control_fade_event(&f,1,1);
     assert(!dm_control_fade_hidden(&f,8.99));assert(dm_control_fade_hidden(&f,9));assert(f.active);
@@ -101,5 +140,18 @@ int main(void) {
     assert(dm_control_fade_hidden(&f,20));
     f.mode=1;assert(!dm_control_fade_hidden(&f,30));
     f.mode=2;assert(dm_control_fade_hidden(&f,30));
+    dm_game_touch_controls screen={0};
+    assert(!dm_game_touch_hidden(&screen,0,1));
+    assert(dm_game_touch_hidden(&screen,2,1)); // Manual direct touch has no hidden hit regions.
+    assert(dm_game_touch_activity(&screen,1,2));
+    assert(dm_game_touch_hidden(&screen,0,100) && dm_game_touch_hidden(&screen,1,100));
+    assert(!dm_game_touch_activity(&screen,1,100)); // Motion does not restart visibility timers.
+    assert(dm_game_touch_activity(&screen,0,101));
+    assert(dm_game_touch_hidden(&screen,0,102.09));
+    assert(!dm_game_touch_hidden(&screen,0,102.11));
+    assert(dm_game_touch_activity(&screen,1,103));
+    assert(dm_game_touch_activity(&screen,0,103.2));
+    assert(dm_game_touch_activity(&screen,1,104)); // The old release must not reveal controls mid-stroke.
+    assert(dm_game_touch_hidden(&screen,0,104.4));
     puts("companion: guest bounds, full portrait geometry, overlay lifecycle and timed artwork passed");return 0;
 }

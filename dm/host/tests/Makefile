@@ -5,11 +5,16 @@ PYTHON ?= python3
 # tests that use the game profile need GAME=<base game title ID> (there is no default game); GINC only expands when used, so tests without the profile build as before
 GINC = $(if $(strip $(GAME)),-I../gen/$(GAME) -I../../games/$(GAME),$(error GAME is not set: make GAME=<base game title ID>: $(shell python3 ../../games/game.py list | awk -F'\t' '{printf "%s (%s)  ", $$1, $$3}')))
 GAME_H = ../gen/$(GAME)/game_profile.h
-run: $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t_fs $(B)/t_fs_commit_list $(B)/t_thread_leak $(B)/t_fs_case $(B)/t_audio $(B)/t_audio_spsc $(B)/t_swkbd $(B)/t_altstack $(B)/t_condvar $(B)/t_condvar_old $(B)/t_pctl $(B)/t_time $(B)/t_shared_font $(B)/t_vorbis $(B)/t_vorbis_divides $(B)/t_hid $(B)/t_haptics $(B)/t_haptics_apple $(B)/t_save_sync
+run: $(B)/t_view_input $(B)/t_present_layout $(B)/t_view_adapter $(B)/t_view_state $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t_fs $(B)/t_fs_commit_list $(B)/t_thread_leak $(B)/t_fs_case $(B)/t_audio $(B)/t_audio_spsc $(B)/t_swkbd $(B)/t_altstack $(B)/t_condvar $(B)/t_condvar_old $(B)/t_pctl $(B)/t_time $(B)/t_shared_font $(B)/t_vorbis $(B)/t_vorbis_divides $(B)/t_hid $(B)/t_haptics $(B)/t_haptics_apple $(B)/t_save_sync
+	$(B)/t_view_input
+	$(B)/t_present_layout
+	$(B)/t_view_adapter
+	$(B)/t_view_state
 	$(B)/t_guest_transaction
 	$(B)/t_companion_sort
 	$(B)/t_companion
 	$(B)/t_companion_apple
+	$(B)/t_companion_material
 	$(B)/t_heap_size
 	$(B)/t_touch
 	$(B)/t_gesture
@@ -43,6 +48,9 @@ run: $(B)/t_heap_size $(B)/t_touch $(B)/t_gesture $(B)/t_oe $(B)/t_fs $(B)/t_fs_
 	$(B)/t_nro
 	$(B)/t_symbols
 run: $(B)/t_companion_apple
+run: $(B)/t_companion_material
+$(B)/t_companion_material: t_companion_material.mm ../../third_party/eden_duo/acnh/acnh_draw.cpp ../../third_party/eden_duo/acnh/acnh_draw.h | $(B)
+	clang++ -O1 -g -std=c++20 -fobjc-arc -ffp-contract=off -I../../third_party/eden_duo -o $@ t_companion_material.mm ../../third_party/eden_duo/acnh/acnh_draw.cpp -framework Foundation -framework Metal
 $(B)/t_companion_apple: t_companion_apple.mm ../companion_apple.mm ../companion.h ../companion_apple.h | $(B)
 	clang++ -O1 -g -std=c++20 -fobjc-arc -DDM_HAS_COMPANION=1 -I.. -o $@ t_companion_apple.mm ../companion_apple.mm -framework Foundation -framework CoreGraphics -framework Metal -framework ImageIO
 run: $(B)/t_companion
@@ -125,9 +133,9 @@ $(B)/t_pctl: t_pctl.c ../hle_misc.c ../hle_lan.h ../hle.h ../dm.h $(GAME_H) | $(
 	clang -O1 -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_pctl.c
 $(B)/t_shared_font: t_shared_font.c ../hle_sdk16.c ../hle.h ../dm.h $(GAME_H) | $(B)
 	clang -O1 -Wall -Werror -Wno-unused-function -Wno-frame-address -I.. $(GINC) -o $@ t_shared_font.c
-$(B)/t_hid: t_hid.c ../hle_hid.c ../hle_haptics.c ../hle_haptics.h ../pad_slots.h ../dm_input.h ../hle.h ../dm.h $(GAME_H) | $(B)
+$(B)/t_hid: t_hid.c ../hle_hid.c ../hle_touch.c ../hle_haptics.c ../hle_haptics.h ../pad_slots.h ../dm_input.h ../hle.h ../dm.h $(GAME_H) | $(B)
 	clang -O1 -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_hid.c ../hle_haptics.c
-$(B)/t_hid_tsan: t_hid.c ../hle_hid.c ../hle_haptics.c ../hle_haptics.h ../pad_slots.h ../dm_input.h ../hle.h ../dm.h $(GAME_H) | $(B)
+$(B)/t_hid_tsan: t_hid.c ../hle_hid.c ../hle_touch.c ../hle_haptics.c ../hle_haptics.h ../pad_slots.h ../dm_input.h ../hle.h ../dm.h $(GAME_H) | $(B)
 	clang -O1 -g -fsanitize=thread -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_hid.c ../hle_haptics.c
 $(B)/t_haptics: t_haptics.c ../hle_haptics.c ../hle_haptics.h ../dm_input.h | $(B)
 	clang -O1 -g -Wall -Werror -I.. -o $@ t_haptics.c ../hle_haptics.c
@@ -164,7 +172,8 @@ $(B)/t_movie_vpx: t_movie_vpx.c ../hle_movie.c $(GAME_H) ../gen/vpx/libvpx.a | $
 $(B):
 	mkdir -p $@
 .PHONY: run tsan
-tsan: $(B)/t_audio_spsc_tsan $(B)/t_hid_tsan
+tsan: $(B)/t_view_state_tsan $(B)/t_audio_spsc_tsan $(B)/t_hid_tsan
+	$(B)/t_view_state_tsan
 	$(B)/t_audio_spsc_tsan
 	$(B)/t_hid_tsan
 
@@ -217,7 +226,26 @@ lan: $(B)/t_socket $(B)/t_ldn $(B)/t_lan_history
 run: lan
 
 run: $(B)/t_guest_transaction $(B)/t_companion_sort
+$(B)/t_thread_exit: t_thread_exit.c t_condvar_stub.c ../hle_thread.c ../hle_svc.c ../entry.S ../dm.h $(GAME_H) | $(B)
+	clang -O1 -g -Wall -Werror -Wno-unused-function -DDM_TEST_THREAD_ENTER -I.. $(GINC) -o $@ t_thread_exit.c t_condvar_stub.c ../hle_svc.c ../entry.S
+thread-exit: $(B)/t_thread_exit
+	$(B)/t_thread_exit
+run: thread-exit
 $(B)/t_guest_transaction: t_guest_transaction.c t_condvar_stub.c ../hle_thread.c ../dm.h $(GAME_H) | $(B)
 	clang -O1 -g -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_guest_transaction.c t_condvar_stub.c
 $(B)/t_companion_sort: t_companion_sort.cpp ../../third_party/eden_duo/acnh/acnh_bag.cpp ../../third_party/eden_duo/acnh/acnh_bag.h | $(B)
 	clang++ -O1 -g -std=c++20 -I../../third_party/eden_duo -o $@ t_companion_sort.cpp ../../third_party/eden_duo/acnh/acnh_bag.cpp
+
+# Owned adaptive-camera assembly and publication state; no game files needed.
+$(B)/t_view_adapter: t_view_adapter.c t_view_adapter.S ../../games/01006F8002326000/view.s | $(B)
+	clang -O1 -g -Wall -o $@ $^
+$(B)/t_view_state: t_view_state.c ../hle_view.c ../front.h ../dm.h $(GAME_H) | $(B)
+	clang -O1 -g -Wall -Wno-unused-function $(GINC) -o $@ t_view_state.c
+$(B)/t_view_state_tsan: t_view_state.c ../hle_view.c ../front.h ../dm.h $(GAME_H) | $(B)
+	clang -O1 -g -Wall -Wno-unused-function -fsanitize=thread $(GINC) -o $@ t_view_state.c
+
+$(B)/t_present_layout: t_present_layout.c ../present_layout.h
+	clang -O1 -Wall -Werror -o $@ $<
+
+$(B)/t_view_input: t_view_input.c ../hle_view.c ../hle_touch.c ../front.h $(GAME_H)
+	clang -O1 -g -Wall -Wno-unused-function $(GINC) -o $@ t_view_input.c ../hle_touch.c

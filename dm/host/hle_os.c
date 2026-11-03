@@ -48,6 +48,9 @@ uint64_t now_ns(void) {
 // Before the first frame the wall clock is still used (the boot period has waits that poll by time, freezing would hang them); at the switch it continues from the guest clock value at that time, no jump. It does not advance while frozen.
 static _Atomic uint64_t g_gfrozen, g_glag, g_gdet, g_guest_frame; static _Atomic int g_gfz, g_gdet_on; static uint64_t g_gdet_step = 1;
 uint64_t dm_guest_frame(void) { return atomic_load(&g_guest_frame); }
+// Stable, read-only clock source for owned guest adapters. A retained UI job
+// can mark the original frame it actually rendered without a host callback.
+const void *dm_guest_frame_counter(void) { return &g_guest_frame; }
 static int detclock_cfg(void) {
     static int c = -1; if (c < 0) { const char *e = getenv("DM_DETCLOCK"); g_gdet_step = e ? strtoull(e, 0, 0) : 0; c = g_gdet_step > 0; }
     return c;

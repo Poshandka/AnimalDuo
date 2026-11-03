@@ -21,13 +21,15 @@ void dm_touch_set(const dm_touch *t, int n) {
     int seen[16] = {0};
     for (int i = 0; i < n; i++) {
         uint32_t id = t[i].id; if (id >= 16) continue;
+        float x=t[i].x,y=t[i].y;
+        if(!dm_view_touch(&x,&y))continue;
         seen[id] = 1;
         if (!g_gf[id].down) g_gf[id].pend = 1;
-        g_gf[id].down = 1; g_gf[id].x = t[i].x; g_gf[id].y = t[i].y;
-        if (g_f[id].st == F_LIFTED && g_f[id].reported) { g_f[id].again = 1; g_f[id].ax = t[i].x; g_f[id].ay = t[i].y; continue; }
+        g_gf[id].down = 1; g_gf[id].x = x; g_gf[id].y = y;
+        if (g_f[id].st == F_LIFTED && g_f[id].reported) { g_f[id].again = 1; g_f[id].ax = x; g_f[id].ay = y; continue; }
         if (g_f[id].st == F_EMPTY) { g_f[id].st = F_DOWN; g_f[id].reported = 0; }
         else if (g_f[id].st == F_LIFTED) g_f[id].st = F_DOWN;              // Pressed again before the lift was reported: treat it as held down all along
-        g_f[id].x = t[i].x; g_f[id].y = t[i].y;
+        g_f[id].x = x; g_f[id].y = y;
     }
     for (int id = 0; id < 16; id++) {
         if (!seen[id]) g_gf[id].down = 0;

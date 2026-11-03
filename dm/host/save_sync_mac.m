@@ -102,6 +102,17 @@ void dm_save_sync_mac_prepare(void (^ready)(void)) {
         [NSFileManager.defaultManager createDirectoryAtURL:folder withIntermediateDirectories:YES attributes:nil error:nil];[NSWorkspace.sharedWorkspace openURL:folder];
     }
 }
+- (void)motion:(id)sender {
+    (void)sender;
+    NSAlert *a=[NSAlert new];a.messageText=T(@"Motion smoothing");
+    a.informativeText=T(@"Adds intermediate display frames to 30 fps games while preserving game speed. Uses more processing power and may introduce image artifacts. Restart the game after changing this setting.");
+    NSButton *toggle=[NSButton checkboxWithTitle:T(@"Smooth motion (30 to 60 fps)") target:nil action:nil];
+    id preference=[NSUserDefaults.standardUserDefaults objectForKey:@"DmMotionSmoothing"];
+    BOOL enabled=preference ? [preference boolValue] : [NSBundle.mainBundle.infoDictionary[@"DMFrameSmoothingDefault"]boolValue];
+    toggle.state=enabled ? NSControlStateValueOn:NSControlStateValueOff;a.accessoryView=toggle;
+    [a addButtonWithTitle:T(@"Done")];[a runModal];
+    [NSUserDefaults.standardUserDefaults setBool:toggle.state==NSControlStateValueOn forKey:@"DmMotionSmoothing"];
+}
 - (void)show:(id)sender {
     (void)sender;NSAlert *a=[NSAlert new];a.messageText=T(@"Cloud saves");a.informativeText=[NSString stringWithFormat:@"%@\n\n%@",T(DMSaveSync.shared.status[@"message"]),T(@"Save and restart the game to change the cloud folder or load another save.")];
     [a addButtonWithTitle:T(@"OK")];[a addButtonWithTitle:T(@"Configure next launch")];if([a runModal]==NSAlertSecondButtonReturn)[NSUserDefaults.standardUserDefaults setBool:YES forKey:setupKey()];
@@ -113,4 +124,5 @@ void dm_save_sync_mac_menu(void) {
     [NSApp.mainMenu.itemArray.firstObject.submenu insertItem:item atIndex:0];
     NSMenuItem *center=[[NSMenuItem alloc]initWithTitle:T(@"Save center") action:@selector(center:) keyEquivalent:@""];center.target=target;[NSApp.mainMenu.itemArray.firstObject.submenu insertItem:center atIndex:0];
     NSMenuItem *performance=[[NSMenuItem alloc]initWithTitle:T(@"Performance recording") action:@selector(performance:) keyEquivalent:@""];performance.target=target;[NSApp.mainMenu.itemArray.firstObject.submenu insertItem:performance atIndex:1];
+    NSMenuItem *motion=[[NSMenuItem alloc]initWithTitle:T(@"Motion smoothing") action:@selector(motion:) keyEquivalent:@""];motion.target=target;[NSApp.mainMenu.itemArray.firstObject.submenu insertItem:motion atIndex:2];
 }

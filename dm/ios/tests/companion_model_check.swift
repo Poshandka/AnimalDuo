@@ -71,11 +71,30 @@ import Foundation
         assert(changed.hit(CGPoint(x:42,y:5))?.payload==1 && initial.hit(CGPoint(x:1,y:5))?.payload==0)
         snapshot["total"] = -1;model.poll()
         assert(EdenFrame(model:model,manifest:changingManifest,local:[:]).nodes.isEmpty)
-        for size in [CGSize(width:834,height:690),CGSize(width:1024,height:750),CGSize(width:500,height:420)] {
+        for size in [CGSize(width:834,height:690),CGSize(width:1024,height:750),CGSize(width:500,height:420),CGSize(width:393,height:538),CGSize(width:402,height:552),CGSize(width:430,height:597)] {
             let l=EdenSurfaceLayout(size);assert(l.body.width==size.width && l.footer.maxY==size.height)
             assert(l.footer.width==size.width && !l.body.intersects(l.footer))
             let original=CGPoint(x:600,y:1010),screen=CGPoint(x:l.navOffset.x+original.x*l.navScale,y:l.navOffset.y+original.y*l.navScale)
             let roundTrip=l.point(screen);assert(abs(roundTrip.x-original.x)<0.00001 && abs(roundTrip.y-original.y)<0.00001)
+            // Both edges of a physical footer cell reach its authored button;
+            // tapping the original artwork alone left compact-width padding dead.
+            for y in [l.footer.minY+0.5,l.footer.maxY-0.5] {
+                let p=l.tapPoint(CGPoint(x:size.width/2,y:y))
+                assert(abs(p.x-620)<0.00001 && p.y==1024)
+            }
+            let body=CGPoint(x:50,y:l.body.midY)
+            assert(l.tapPoint(body)==l.point(body))
+            let reserved=EdenSurfaceLayout(size,controls:true)
+            let art=CGRect(x:reserved.bodyOffset.x,y:reserved.bodyOffset.y,width:1240*reserved.bodyScale,height:968*reserved.bodyScale)
+            assert(reserved.content.insetBy(dx:-0.0001,dy:-0.0001).contains(art))
+            assert(!reserved.left.intersects(reserved.content) && !reserved.right.intersects(reserved.content))
+            assert(reserved.footer==l.footer) // Touch columns never move navigation.
+            let item=CGPoint(x:320,y:240)
+            let itemOnScreen=CGPoint(x:reserved.bodyOffset.x+item.x*reserved.bodyScale,y:reserved.bodyOffset.y+item.y*reserved.bodyScale)
+            let itemBack=reserved.tapPoint(itemOnScreen)
+            assert(abs(itemBack.x-item.x)<0.00001 && abs(itemBack.y-item.y)<0.00001)
+            let oldScale=min(size.width/1240,l.body.height/968)
+            assert(abs(l.bodyScale-oldScale)<0.00001) // Desktop/full-content layout is retained.
         }
         let scrollManifest=EdenManifest(data:try! JSONSerialization.data(withJSONObject:["pages":[["id":"diy","scrolls":[["id":"diy","rect":[0,0,200,100],"show_bind":"unblocked","count_bind":"count","row_h":80,"cols":2,"bar_w":12,"bar":"#FF112233","bar_track":"#FF445566"]],"widgets":[["type":"rect","rect":[0,0,40,40],"scroll":"diy","on_tap":"recipe"],["type":"rect","rect":[0,0,200,100],"input_block":true,"on_tap":"overlay"]]]]]))
         snapshot=["acnh.ready":1,"count":50,"unblocked":1];model.select(.diy)

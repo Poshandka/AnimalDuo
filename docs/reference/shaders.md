@@ -745,6 +745,14 @@ Finding, keying and translating shaders (`dm/gfx/tools/shader_split.py`, `dmsh_b
 - **Found on:** [The Legend of Zelda: Tears of the Kingdom](https://github.com/seedds/nxnative/blob/b7a5cd43453722d448e07407d88a9c05ed294492/dm/games/0100F2C0115B6000/README.md#found-on-this-game), reported on an M5 Max and reproduced with the local shader libraries on an M4 Pro. This is shared NVN archive code, not a game profile rule.
 - **Check:** the same 19-file snapshot, 1,490 archived bases and 44 new bases failed in two of three runs with lookup imports and passed all three when only that option was removed. The implemented fix passed three further compactions and their following restarts: each compacted file supplied all 1,534 bases with zero new base compilations on restart. These are library-only manifest replays using the local `e7245308050d` libraries and a matching diagnostic chain header, not a new gameplay run or an iOS test. `t_pso_archive` rejects lookup imports at the real compiler seam; `test_pso_archive.py` exercises disk-built libraries, concurrent recaptures mixed with a fresh function, function constants, compaction and restart in separate processes (`make -C dm/gfx/tests GAME=<id> check_t_pso_archive`). The marker tests retain the recovery guard and check migration from the old OS-only marker, including a fresh-process restart with that marker present.
 
+### Concurrent prewarm shader loads
+
+- **Symptom:** parallel shader prewarming loads the same library repeatedly, discards all but one shader object and does unnecessary allocation and reflection parsing.
+- **Cause:** shader tasks and render-pair tasks share shader keys. The dictionary lock protected lookup and publication, but workers loaded libraries outside it before publishing a result. Several workers could observe the same missing key and all perform the load.
+- **Fix:** `warm_shader` publishes a `WarmShader` entry under the dictionary lock before loading. Synchronizing on that entry coalesces requests for the same key, including failures. Loading and waiting take place outside the dictionary lock, so different keys can still load concurrently. This does not change shader translation, pipeline descriptors or cache eviction.
+- **Found on:** [Animal Crossing: New Horizons](../../dm/games/01006F8002326000/README.md#ipad-long-session-prewarm-follow-up-2026-10-31).
+- **Check:** `t_pso_warm` sends 32 concurrent requests per cold key across eight waves and counts actual `newLibraryWithData:error:` calls on the Metal device. The old implementation makes 76 requests through MTLDevice and 73 through Metal 4 in the recorded reproduction; the fix makes exactly eight in either mode. Existing cache-hit and GPU pixel checks still exercise normal and merged passes.
+
 ### Pipeline keys omit unused colour state
 
 - **Symptom:** identical render pipelines compile repeatedly under different keys, lengthening startup prewarm and adding pipeline misses during play.

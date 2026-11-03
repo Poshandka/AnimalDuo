@@ -22,6 +22,22 @@
     if(![offset isKindOfClass:NSDictionary.class]){if(self.controlScale==1)return p;offset=@{};}
     double x=[offset[@"x"]isKindOfClass:NSNumber.class] ? [offset[@"x"]doubleValue] : 0,y=[offset[@"y"]isKindOfClass:NSNumber.class] ? [offset[@"y"]doubleValue] : 0;
     if(!isfinite(x)||!isfinite(y))return p;
+    if(_sideControls){
+        dm_companion_pad_layout g=self.sideGeometry;BOOL right=NO;CGRect box;
+        if([group isEqual:@"leftStick"])box=dm_companion_pad_disc(g.stick,dm_companion_pad_stick_extent(g,0));
+        else if([group isEqual:@"rightStick"]){right=YES;box=dm_companion_pad_disc(g.right_stick,dm_companion_pad_stick_extent(g,1));}
+        else if([group isEqual:@"face"]){right=YES;box=dm_companion_pad_disc(g.face,g.face_gap+g.face_r*1.25);}
+        else if([group isEqual:@"dpad"])box=dm_companion_pad_disc(g.dpad,g.dpad_r*1.3);
+        else if([group hasPrefix:@"shoulder"]){right=[group isEqual:@"shoulderR"];int i=right?2:0;box=CGRectUnion(dm_companion_pad_disc(g.shoulder[i],g.shoulder_r*1.45),dm_companion_pad_disc(g.shoulder[i+1],g.shoulder_r*1.45));}
+        else if([group hasPrefix:@"click"]){right=[group isEqual:@"clickR"];box=dm_companion_pad_disc(g.click[right],g.click_r*1.35);}
+        else if([group isEqual:@"plus"]||[group isEqual:@"minus"]){right=[group isEqual:@"plus"];box=dm_companion_pad_menu_hit(g,right);}
+        else box=dm_companion_pad_disc(g.swap,fmax(22,g.swap_r*1.6));
+        CGRect rail=dm_companion_pad_region(g,right);
+        CGFloat dx=fmin(.75,fmax(-.75,x))*self.bounds.size.width,dy=fmin(.75,fmax(-.75,y))*self.bounds.size.height;
+        dx=fmin(CGRectGetMaxX(rail)-CGRectGetMaxX(box),fmax(CGRectGetMinX(rail)-CGRectGetMinX(box),dx));
+        dy=fmin(CGRectGetMaxY(rail)-CGRectGetMaxY(box),fmax(CGRectGetMinY(rail)-CGRectGetMinY(box),dy));
+        return CGPointMake(p.x+dx,p.y+dy);
+    }
     p.x+=fmin(.75,fmax(-.75,x))*self.bounds.size.width;p.y+=fmin(.75,fmax(-.75,y))*self.bounds.size.height;
     CGFloat rx=fmin(radius,self.bounds.size.width/2),ry=fmin(radius,self.bounds.size.height/2);
     p.x=fmin(self.bounds.size.width-rx,fmax(rx,p.x));p.y=fmin(self.bounds.size.height-ry,fmax(ry,p.y));return p;
@@ -29,7 +45,7 @@
 - (NSArray *)editingHandles {
     NSMutableArray *rows=[NSMutableArray new];
     NSArray *ids=@[@"leftStick",@"rightStick",@"face",@"dpad",@"shoulderL",@"shoulderR",@"clickL",@"clickR",@"minus",@"plus",@"layout"];
-    NSArray *titles=@[@"L",@"R",@"ABXY",@"D-pad",@"ZL / L",@"ZR / R",@"L3",@"R3",@"−",@"+",@"2D / 3D"];
+    NSArray *titles=@[@"L",@"R",@"ABXY",@"D-pad",@"ZL / L",@"ZR / R",@"L3",@"R3",@"−",@"+",@"Screen controls"];
     CGPoint p[]={self.stickHome,self.rightHome,self.faceCenter,self.dpadCenter,[self dropCenter:B_ZL],[self dropCenter:B_ZR],[self clickCenter:B_LS],[self clickCenter:B_RS],CGPointMake(CGRectGetMidX([self pillRect:B_MINUS]),CGRectGetMidY([self pillRect:B_MINUS])),CGPointMake(CGRectGetMidX([self pillRect:B_PLUS]),CGRectGetMidY([self pillRect:B_PLUS])),self.swapCenter};
     for(NSUInteger i=0;i<ids.count;i++)[rows addObject:@{@"id":ids[i],@"title":titles[i],@"x":@(p[i].x/MAX(1,self.bounds.size.width)),@"y":@(p[i].y/MAX(1,self.bounds.size.height))}];return rows;
 }

@@ -17,6 +17,16 @@ static DMSaveSync *client(NSString *name,NSURL *cloud) {
 }
 static NSDictionary *plan(DMSaveSync *s) { NSError *e;NSDictionary *p=[s inspect:&e];if(e)fprintf(stderr,"plan failed: %s\n",e.localizedDescription.UTF8String);assert(p && !e);return p; }
 static void prepare(DMSaveSync *s,NSString *choice) { NSError *e;NSDictionary *p=plan(s);assert([s prepareChoice:choice token:p[@"token"] error:&e] && !e); }
+@interface ReadbackFailureSync:DMSaveSync
+@property BOOL corruptReadback;
+@property NSString *corruptExtension;
+@end
+@implementation ReadbackFailureSync
+- (BOOL)verifyPublishedData:(NSData *)data atURL:(NSURL *)url error:(NSError **)error {
+    if(self.corruptReadback && (!self.corruptExtension || [url.pathExtension isEqual:self.corruptExtension]))[NSData.data writeToURL:url atomically:YES];
+    return [super verifyPublishedData:data atURL:url error:error];
+}
+@end
 int main(int argc,const char **argv) { @autoreleasepool {
     testRoot=[NSURL fileURLWithPath:[NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString] isDirectory:YES];
     NSURL *cloud=directory(@"cloud"); DMSaveSync *a=client(@"a",cloud),*b=client(@"b",cloud);
@@ -79,6 +89,26 @@ int main(int argc,const char **argv) { @autoreleasepool {
     e=nil;assert([center deleteCheckpoint:freshNamed[@"id"] error:&e] && !e);
     center.active=NO;[center captureCommit:center.local.path];[center flush];assert([[center saveCenter:nil][@"localSavedAt"]length]>0);
     assert([[a saveCenter:nil][@"uploadState"]isEqual:@"Written to folder; provider upload unconfirmed"]);
+    // A local state hash cannot acknowledge deleted or incomplete folder data.
+    DMSaveSync *repair=client(@"repair-local",directory(@"repair-cloud"));put(repair.local,@"same complete island");prepare(repair,@"");
+    assert([repair records:nil].count==1);assert([NSFileManager.defaultManager removeItemAtURL:repair.cloudRoot error:nil]);
+    assert(![[repair saveCenter:nil][@"folderMatchesLocal"]boolValue]);prepare(repair,@"");assert([repair records:nil].count==1);
+    NSDictionary *repairHeader=plan(repair)[@"heads"][0];NSURL *repairPayload=[repair.cloudRoot URLByAppendingPathComponent:[repairHeader[@"id"]stringByAppendingPathExtension:@"nxsave"]];
+    assert([NSFileManager.defaultManager removeItemAtURL:repairPayload error:nil]);prepare(repair,@"");
+    DMSaveSync *receiver=client(@"repaired-receiver",repair.folder);prepare(receiver,@"");assert([get(receiver.local)isEqual:@"same complete island"]);
+    assert([[repair saveCenter:nil][@"folderMatchesLocal"]boolValue]);put(repair.local,@"new unsent progress");
+    assert(![[repair saveCenter:nil][@"folderMatchesLocal"]boolValue]);assert(![[repair saveCenter:nil][@"uploadState"]isEqual:@"Written to folder; provider upload unconfirmed"]);
+    // A provider write followed by bad readback retains the outbox, publishes
+    // no discovery header and never claims a verified folder checkpoint.
+    ReadbackFailureSync *fault=[[ReadbackFailureSync alloc]initWithLocalURL:directory(@"readback-local") title:@"test" version:@"1" device:NSUUID.UUID.UUIDString];fault.folder=directory(@"readback-cloud");put(fault.local,@"verified body");fault.corruptReadback=YES;e=nil;
+    assert(![fault prepareChoice:@"" token:plan(fault)[@"token"] error:&e] && e);assert([fault records:nil].count==0);
+    assert([NSFileManager.defaultManager fileExistsAtPath:[fault.cache URLByAppendingPathComponent:@"outbox.nxsave"].path]);assert(!fault.activity[@"publishedAt"]);
+    fault.corruptReadback=NO;prepare(fault,@"");assert([fault records:nil].count==1 && [[fault saveCenter:nil][@"folderMatchesLocal"]boolValue]);
+    DMSaveSync *verifiedReceiver=client(@"verified-receiver",fault.folder);prepare(verifiedReceiver,@"");assert([get(verifiedReceiver.local)isEqual:@"verified body"]);
+    ReadbackFailureSync *badIndex=[[ReadbackFailureSync alloc]initWithLocalURL:directory(@"index-local") title:@"test" version:@"1" device:NSUUID.UUID.UUIDString];badIndex.folder=directory(@"index-cloud");badIndex.corruptReadback=YES;badIndex.corruptExtension=@"nxmeta";put(badIndex.local,@"index verified body");e=nil;
+    assert(![badIndex prepareChoice:@"" token:plan(badIndex)[@"token"] error:&e] && e && [badIndex records:nil].count==0);
+    assert([NSFileManager.defaultManager fileExistsAtPath:[badIndex.cache URLByAppendingPathComponent:@"outbox.nxsave"].path]);badIndex.corruptReadback=NO;prepare(badIndex,@"");assert([badIndex records:nil].count==1);
+    puts("Save sync verification: missing cloud rebuilt, same-hash missing payload repaired, bad readback retained for retry and current-progress status PASS");
     puts("Save center: named full-tree checkpoints, stale restore rejection, pre-restore backup, live-game guard, corrupt payload rejection and offline commit status PASS");
     NSURL *bad=[[d cloudRoot] URLByAppendingPathComponent:@"broken.nxmeta"];[NSData.data writeToURL:bad atomically:YES];e=nil;assert(![d inspect:&e] && e);assert([get(d.local) isEqual:@"offline"]);
     [NSFileManager.defaultManager removeItemAtURL:testRoot error:nil];puts("Save sync: sequential devices, concurrent branches, resolution, stale choice, capture, retention, outbox retry and corrupt paths PASS");
