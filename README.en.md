@@ -1,6 +1,6 @@
 # AnimalDuo
 
-Current source: application **3.0.51**, game **3.0.3**. See the [Chinese release notes](RELEASES/3.0.51.md) for persistent side controls, fullscreen phones, adaptive folding, resource reuse and validation limits.
+Current release: **AnimalDuo 1.0**, based on application build **3.0.51** for game **3.0.3**. See the [Chinese release notes](RELEASES/3.0.51.md) for persistent side controls, fullscreen phones, adaptive folding, resource reuse and validation limits.
 
 [简体中文](README.md) · English · [English source guide](PUBLIC-SOURCE.md)
 
@@ -63,7 +63,7 @@ See the [Animal Crossing profile note](dm/games/01006F8002326000/README.md) for 
 
 **Get the source and build**
 
-[Download slim source · approximately current source](https://github.com/ShawndYang/AnimalDuo/releases/tag/v3.0.51) · [English source and build guide](PUBLIC-SOURCE.md) · [Browse the repository](https://github.com/ShawndYang/AnimalDuo)
+[Download 1.0 source](https://github.com/ShawndYang/AnimalDuo/releases/tag/v1.0) · [English source and build guide](PUBLIC-SOURCE.md) · [Browse the repository](https://github.com/ShawndYang/AnimalDuo)
 
 **The download contains source code, not an installable game.**
 

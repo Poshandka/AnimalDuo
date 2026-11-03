@@ -6,9 +6,9 @@
 
 AnimalDuo 是面向 **iPad、iPhone 和 Apple Silicon Mac** 的动森增强开源项目，以竖屏双屏、实时岛屿信息和触控操作为特色，整合背包交互、岛民管理、云存档和同版局域网互访。
 
-当前公开源码对应 **应用 3.0.51 / 游戏 3.0.3**。项目基于 [nxnative](https://github.com/seedds/nxnative)，沿用源自 [d2r-mobile](https://github.com/jhaizhou-ops/d2r-mobile) 的原生执行方案，并集成 [Eden Duo Companions](https://github.com/igawa6/eden-duo-companions)。游戏代码经适配后在 Apple 芯片上执行，图形接口转换为 Metal。
+当前发布版本为 **AnimalDuo 1.0**，对应 **应用构建 3.0.51 / 游戏 3.0.3**。项目基于 [nxnative](https://github.com/seedds/nxnative)，沿用源自 [d2r-mobile](https://github.com/jhaizhou-ops/d2r-mobile) 的原生执行方案，并集成 [Eden Duo Companions](https://github.com/igawa6/eden-duo-companions)。游戏代码经适配后在 Apple 芯片上执行，图形接口转换为 Metal。
 
-[下载 3.0.51 源码](https://github.com/ShawndYang/AnimalDuo/releases/tag/v3.0.51) · [本版更新说明](RELEASES/3.0.51.md) · [中文构建说明](docs/BUILD.zh-CN.md)
+[下载 1.0 源码](https://github.com/ShawndYang/AnimalDuo/releases/tag/v1.0) · [本版更新说明](RELEASES/3.0.51.md) · [中文构建说明](docs/BUILD.zh-CN.md)
 
 ## 主要功能
 
