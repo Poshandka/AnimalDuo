@@ -2,6 +2,22 @@
 
 SDK calls and system services the host answers (`dm/host/hle_*.c`). Each entry: symptom, cause, fix, the games it was found on. The [symptom index](../agents/symptoms.md) lists every symptom.
 
+## Apple frontend build and test compatibility
+
+### Hinge observer declarations are absent in older iOS SDKs
+
+- **Symptom:** the iOS compile and unsigned-app jobs fail with unknown `UIHingeInteraction` / `UIHingeInteractionUpdate` types under Xcode 26.6's iOS 26.5 SDK.
+- **Cause:** `@available(iOS 27.1, *)` protects execution on an older OS, but does not supply declarations missing from the SDK used to compile the source.
+- **Fix:** guard the optional hinge observer registration with `__has_include(<UIKit/UIHingeInteraction.h>)`, retaining its runtime availability check. Current SDKs retain the observer; older SDKs use the existing screen-bounds and trait updates. The layout and orientation policies are unchanged.
+- **Found on:** [Animal Crossing: New Horizons](../../dm/games/01006F8002326000/README.md#continuous-integration-follow-up-2026-11-06).
+
+### Haptics unit checks race delayed timer delivery
+
+- **Symptom:** the fake player's idle-stop assertion intermittently fails on a busy hosted runner after a fixed 1.1-second sleep.
+- **Cause:** a dispatch timer becoming eligible after one second does not guarantee that its callback has been enqueued before a later queue drain. The preceding CoreHaptics -4810 message is an intentional fake-engine startup failure in the recovery test, not evidence of hardware access.
+- **Fix:** the test captures scheduled callbacks and explicitly delivers them on the adapter's serial queue. It checks stale-timer rejection during a new effect and idle release for the current generation. Production scheduling and hardware behavior are unchanged; assertions remain enabled and the test uses no actuator.
+- **Found on:** [Animal Crossing: New Horizons](../../dm/games/01006F8002326000/README.md#continuous-integration-follow-up-2026-11-06).
+
 ## Service connections
 
 ### SDK calls that open a system service through sm

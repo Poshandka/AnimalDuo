@@ -1,6 +1,27 @@
 // Run the actual serial-queue adapter with fake engines: no controller, actuator or app is opened.
+#import <Foundation/Foundation.h>
+static void capture_after(dispatch_time_t when, dispatch_queue_t target, dispatch_block_t block);
+#define dispatch_after capture_after
 #import "../haptics_apple.m"
+#undef dispatch_after
 #include <assert.h>
+
+// Advance scheduled callbacks explicitly: a fixed wall-clock sleep can finish
+// before libdispatch delivers an eligible timer on a busy or suspended runner.
+static NSMutableArray<dispatch_block_t> *idleTimers;
+static void capture_after(dispatch_time_t when, dispatch_queue_t target, dispatch_block_t block) {
+    (void)when; assert(target == queue && dispatch_get_specific(&queue));
+    if (!idleTimers) idleTimers = [NSMutableArray new];
+    [idleTimers addObject:[block copy]];
+}
+static void fire_idle_timers(void) {
+    dispatch_sync(queue, ^{
+        assert(idleTimers.count);
+        NSArray<dispatch_block_t> *pending = [idleTimers copy];
+        [idleTimers removeAllObjects];
+        for (dispatch_block_t block in pending) block();
+    });
+}
 
 @interface TestPlayer : NSObject
 @property BOOL loopEnabled, isMuted;
@@ -131,7 +152,7 @@ int main(void) { @autoreleasepool {
     assert(left.testPlayer.levels.lastObject.floatValue == 0 && right.testPlayer.levels.lastObject.floatValue == 0);
     assert(left.testPlayer.levels.count == 2);   // short pulse ends immediately, without a minimum duration
     send_pair(0.4, 0.5);
-    usleep(1100000); drain();
+    fire_idle_timers(); drain();
     assert(left.testPlayer.levels.lastObject.floatValue == 0.4f && left.testPlayer.stops == 0);   // old idle timer cannot stop a new effect
     assert(left.starts == 1);   // reused player; no per-frame engine restart
     dm_haptic_state stale = {0, dm_haptics_epoch(0), {{1, 160, 0, 320}, {1, 160, 0, 320}}};
@@ -148,7 +169,7 @@ int main(void) { @autoreleasepool {
     assert(dm_haptics_actual(0, 0).amplitude_low == 0);   // failed output is cleared, so a fresh identical send may retry
     left.fail = NO; expire_retries(); send_pair(0.8, 0.8);
     assert(left.testPlayer.levels.lastObject.floatValue == 0.8f);
-    send_pair(0, 0); usleep(1100000); drain();
+    send_pair(0, 0); fire_idle_timers(); drain();
     assert(left.testPlayer.stops == 1);   // idle hardware eventually released
     int engines = made; starts = left.starts; send_pair(0.7, 0.7);
     assert(made == engines && left.starts == starts + 1 && left.testPlayer.levels.lastObject.floatValue == 0.7f);   // the released engine is restarted, not made again

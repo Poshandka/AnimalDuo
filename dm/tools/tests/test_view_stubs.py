@@ -31,7 +31,9 @@ class Relocations(unittest.TestCase):
     @unittest.skipUnless(sys.platform=='darwin' and shutil.which('clang'),'Apple ARM64 assembler required')
     def test_generated_profile_matches_owned_source(self):
         source=TOOLS.parent/'games/01006F8002326000/view.s';profile=source.with_name('patches.py')
-        spec=importlib.util.spec_from_file_location('test_owned_view',profile);module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
+        spec=importlib.util.spec_from_file_location('test_owned_view',profile)
+        assert spec is not None and spec.loader is not None
+        module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
         words,symbols,relocations=assemble(source)
         self.assertEqual(module.source_sha256,hashlib.sha256(source.read_bytes()).hexdigest())
         self.assertEqual((module.words,module.symbols,module.relocations),(words,symbols,relocations))

@@ -2,8 +2,8 @@
   "project_version": "1.1",
   "application_build": "3.0.59",
   "game_version": "3.0.3",
-  "source_scope": "Frozen 3.0.59 production source with dedicated public documentation and asset-free fixture adaptations.",
-  "production_files_identical_to_frozen_release": 213,
+  "source_scope": "Frozen 3.0.59 source plus post-release CI compatibility, deterministic test and Python type fixes.",
+  "production_files_identical_to_frozen_release": 211,
   "publication_python_checks_passed": 22,
   "publication_lan_interface_and_lifecycle_check": "PASS",
   "private_local_paths_found": 0,
@@ -13,5 +13,42 @@
   "unchanged_public_upstream_binary_tools": 76,
   "raw_logs_saves_cloud_bookmarks_signing_or_game_resources_included": false,
   "upstream_copyright_and_component_licenses_retained": true,
-  "new_physical_device_or_game_performance_results": false
+  "new_physical_device_or_game_performance_results": false,
+  "intentional_production_source_changes": [
+    {
+      "path": "dm/ios/Sources/front_ios.m",
+      "change": "Compile the optional hinge observer only when its SDK header is available."
+    },
+    {
+      "path": "scripts/build_acnh_resident_catalog.py",
+      "change": "Retain integer field types for template validation; generated catalog output is identical."
+    }
+  ],
+  "ci_fix_local_checks": {
+    "date": "2026-11-06",
+    "host_unit_suite": "PASS",
+    "tool_tests": {
+      "run": 310,
+      "optional_skips": 16,
+      "status": "PASS"
+    },
+    "ios_tool_tests": {
+      "run": 42,
+      "status": "PASS"
+    },
+    "unsigned_ios_synthetic_app": "PASS",
+    "ruff_and_pyright": {
+      "baseline_findings": 379,
+      "new_findings": 0,
+      "obsolete_baseline_findings": 0,
+      "status": "PASS"
+    },
+    "catalog_output_equivalence": "PASS",
+    "acnh_fresh_save_regression": {
+      "status": "PASS",
+      "seconds_per_revision": 90,
+      "scope": "Same-Mac source comparison; busy host, no performance claim."
+    },
+    "hosted_results": "See the commit-specific GitHub Actions runs."
+  }
 }

@@ -217,6 +217,9 @@ void dm_companion_ui_activity(int source,int busy) {
         (void)previous;[(DmRootVC *)environment displayTraitsChanged];
     }];
     front_ios_power_watch();
+    // Runtime availability does not provide declarations to an older SDK.
+    // Bounds/trait-driven layout remains available without hinge notifications.
+#if __has_include(<UIKit/UIHingeInteraction.h>)
     if(@available(iOS 27.1,*)){
         __weak DmRootVC *weak=self;
         UIHingeInteraction *hinge=[[UIHingeInteraction alloc]initWithUpdateHandler:^(UIHingeInteraction *interaction,UIHingeInteractionUpdate *update){
@@ -225,6 +228,7 @@ void dm_companion_ui_activity(int source,int busy) {
         }];
         [self.view addInteraction:hinge];
     }
+#endif
     if (!front_ios_boot_ok()) {   // No game files: show a hint and do not start the host
         UILabel *lb = [[UILabel alloc] initWithFrame:CGRectInset(self.view.bounds, 40, 40)];
         lb.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;

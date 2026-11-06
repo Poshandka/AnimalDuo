@@ -4,7 +4,7 @@
 
 ## Scope
 
-This is a source snapshot of the Animal Crossing 3.0.3 Apple extension, based on nxnative revision b7a5cd43453722d448e07407d88a9c05ed294492. It preserves the original source and copyright notices. Runtime sources match application 3.0.59 (game 3.0.3); publication removes private records, unnecessary debug metadata and the nested dependency archive. The dedicated AnimalDuo tree also omits other games' large profile tables and the upstream screenshot gallery; their small, unchanged metadata and patch files survive only as opt-in test fixtures. The complete ACNH profile, runtime, dependencies and licenses are retained.
+This is a source snapshot of the Animal Crossing 3.0.3 Apple extension, based on nxnative revision b7a5cd43453722d448e07407d88a9c05ed294492. It preserves the original source and copyright notices. The v1.1 tag matches application 3.0.59 (game 3.0.3); main also includes the CI compatibility fixes described below. Publication removes private records, unnecessary debug metadata and the nested dependency archive. The dedicated AnimalDuo tree also omits other games' large profile tables and the upstream screenshot gallery; their small, unchanged metadata and patch files survive only as opt-in test fixtures. The complete ACNH profile, runtime, dependencies and licenses are retained.
 
 Included extensions:
 
@@ -60,7 +60,9 @@ BUILD-ANIMALDUO-1.1.txt describes the current source; historical BUILD files des
 
 ## Validation
 
-The publication check verifies that production runtime and build-tool bytes match the input release, against the frozen 3.0.59 corresponding-source archive. Production code is unchanged by public-source preparation; existing lightweight test-fixture adaptations remain, with synthetic interface addresses normalized for publication. Documentation links and asset-independent unit checks are recorded in the accompanying publication report. Historical M4 measurements and unresolved issues are documented in [the game note](dm/games/01006F8002326000/README.md); they are not fresh device measurements from this publication.
+The v1.1 publication check verified production runtime and build-tool bytes against the frozen 3.0.59 corresponding-source archive. The subsequent CI fixes on main add a compile-time SDK guard around the optional hinge observer, make the fake-engine haptics timer test deterministic, and correct Python loader/registry/catalog types while shrinking the existing diagnostic baseline. Production haptics scheduling, game patches and shader inputs are unchanged. These source edits are recorded separately in SOURCE-REVIEW.json; main no longer claims complete byte identity with the frozen release. Use main for these fixes; the v1.1 tag and source archive remain the original release.
+
+Documentation links and asset-independent unit checks are recorded in the accompanying source review. Historical M4 measurements and unresolved issues are documented in [the game note](dm/games/01006F8002326000/README.md); they are not fresh device measurements from this publication. Check the commit-specific [GitHub Actions results](https://github.com/ShawndYang/AnimalDuo/actions) for hosted build and test status.
 
 Do not infer physical iPad/iPhone/M2, cross-device cloud/LAN, all-weather shader coverage or guaranteed prolonged stability from local Mac results. A repeated-room loading-readiness incident remains unresolved. Raw private run logs and screenshots are not needed to build this source.
 

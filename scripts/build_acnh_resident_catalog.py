@@ -6,6 +6,7 @@ The output belongs beside the user's game build, outside the repository.
 """
 import argparse
 import base64
+from collections.abc import Sequence
 import ctypes
 import ctypes.util
 import json
@@ -14,7 +15,7 @@ import re
 import struct
 import zlib
 
-SPECIES = 'ant bea brd bul cat cbr chn cow crd der dog duk elp flg goa gor ham hip hrs kal kgr lon mnk mus ocp ost pbr pgn pig rbt rhn shp squ tig wol'.split()
+SPECIES: Sequence[str] = 'ant bea brd bul cat cbr chn cow crd der dog duk elp flg goa gor ham hip hrs kal kgr lon mnk mus ocp ost pbr pgn pig rbt rhn shp squ tig wol'.split()
 PERSONALITIES = ['Boy_normal', 'Boy_active', 'Boy_pride', 'Boy_snobby', 'Girl_normal', 'Girl_active', 'Girl_pride', 'Girl_big_sis']
 
 
@@ -103,13 +104,15 @@ def build(romfs, templates=None):
         internal = raw[at+identity:at+identity+8].split(b'\0')[0].decode('ascii')
         if not re.fullmatch('[a-z]{3}[0-9]{2}', internal) or internal[:3] not in SPECIES:
             raise ValueError(f'unknown resident identity: {internal}')
+        species = SPECIES.index(internal[:3])
+        variant = int(internal[3:])
+        temperament = types[struct.unpack_from('<I', raw, at+personality)[0]]
         animal = dict(id=internal, name=names[internal], english=english[internal], phrase=phrases[internal],
-                            species=SPECIES.index(internal[:3]), variant=int(internal[3:]),
-                            personality=types[struct.unpack_from('<I', raw, at+personality)[0]])
+                      species=species, variant=variant, personality=temperament)
         if templates is not None:
             v = (Path(templates)/'Villagers'/f'{internal}V.bin').read_bytes()
             h = (Path(templates)/'Houses'/f'{internal}H.bin').read_bytes()
-            if len(v) != 0x13230 or len(h) != 0x12e8 or v[:3] != bytes([animal['species'], animal['variant'], animal['personality']]):
+            if len(v) != 0x13230 or len(h) != 0x12e8 or v[:3] != bytes([species, variant, temperament]):
                 raise ValueError(f'incompatible resident/house template: {internal}')
             animal['template'] = base64.b64encode(zlib.compress(v+h, 9)).decode('ascii')
         animals.append(animal)

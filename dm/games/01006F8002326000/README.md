@@ -250,6 +250,8 @@ The first repeated-room automation attempt stops after one cycle because cancell
 
 ## Found on this game
 
+- **CI SDK declarations and deterministic haptics timers:** [Apple frontend build and test compatibility](../../../docs/reference/services.md#apple-frontend-build-and-test-compatibility).
+
 - [Bonjour finds a room whose listener uses a link-local interface](../../../docs/reference/services.md#bonjour-finds-a-room-whose-listener-uses-a-link-local-interface).
 
 - [Tablet canvas retains the legacy fitted layout](../../../docs/reference/services.md#tablet-canvas-retains-the-legacy-fitted-layout).
@@ -653,3 +655,13 @@ Native backend checks independently cover the default 30-second expiry, 60-secon
 The unsigned update retains the installed immutable resource requirements, rewritten guest metadata, shader chain and save engine from 3.0.58. Its additional launcher setting and Chinese native waiting table accompany the updated executable. It needs no new game-resource import when the preceding resource set is already installed. No physical app was signed or installed by the agent.
 
 Final verification passes the complete native host/LAN/socket suite, including 40 finalization cycles concurrent with lifecycle notifications, all 42 iOS tests, and 310 tool tests (16 skipped). The owned UIKit total is 64,503 assertions. The full local-game regression uses a fresh 90-second baseline and final 90-second candidate against 8334fdfb50a9: baseline 29.9 fps / p99 35.06 ms / peak 1,753 MB; candidate 29.9 fps / p99 34.46 ms / peak 1,783 MB. Red-message kinds are unchanged and both screenshots pass comparison. This Mac is marked busy, so these finite checks do not establish a startup, memory or performance improvement. The final unsigned small IPA is 45,763,523 bytes; it changes the executable, Info.plist and launcher JSON and adds `Multiplayer.strings`. Complete corresponding source retains the component licenses and excludes game assets, saves and raw guest captures.
+
+## Continuous integration follow-up (2026-11-06)
+
+The public 1.1 source's hosted iOS build uses an older SDK than the local 3.0.59 build. The optional hinge observer now has a compile-time header guard as well as its existing runtime availability guard; see [SDK declaration compatibility](../../../docs/reference/services.md#hinge-observer-declarations-are-absent-in-older-ios-sdks). The bounds/traits route remains available, and a current SDK retains the iOS 27.1 observer. No scene projection, guest adapter, shader input, save format or gameplay behavior is changed by this guard.
+
+The haptics unit failure is a timer-delivery race in a fake-engine test, not a newly observed physical rumble failure. The test now delivers captured callbacks explicitly on the real adapter queue, preserving idle release and stale-generation assertions; see [deterministic haptics checks](../../../docs/reference/services.md#haptics-unit-checks-race-delayed-timer-delivery). Production hardware scheduling is unchanged.
+
+Python checks now narrow dynamically loaded module specs before dereferencing their loaders, type the heterogeneous exec registry namespace, and keep the resident catalog's species/variant/personality byte inputs as integers. The lint baseline is reduced only for findings actually resolved by these changes; no new diagnostic allowance, checker downgrade or disabled job is introduced. These are public-source build/validation follow-ups to the frozen 1.1 release, not new physical-device or performance results.
+
+Local follow-up validation passed the host unit suite, 310 tool tests (16 optional skips), 42 iOS tool tests, the unsigned synthetic iOS app build and the pinned Python ratchet (379 existing findings, no new or obsolete baseline entries). Catalog generation matched the prior output. The full fresh-save `regress.py` comparison against the published 1.1 source passed: both 90-second runs reached their target, all 9,766 shaders remained successful, and there were no new interface failures or RED messages. The Mac was busy; these finite startup checks do not establish a performance improvement, prolonged stability or physical-device acceptance. Hosted results remain specific to each GitHub Actions commit.

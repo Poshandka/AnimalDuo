@@ -79,6 +79,8 @@ See the [Animal Crossing profile note](dm/games/01006F8002326000/README.md) for 
 
 [Download 1.1 source](https://github.com/ShawndYang/AnimalDuo/releases/tag/v1.1) · [English source and build guide](PUBLIC-SOURCE.md) · [Browse the repository](https://github.com/ShawndYang/AnimalDuo)
 
+Use the main branch for the subsequent SDK compatibility, haptics-test and Python-check fixes. The v1.1 tag and downloadable archive retain the original frozen source. Commit-specific check results are available in [GitHub Actions](https://github.com/ShawndYang/AnimalDuo/actions).
+
 **The download contains source code, not an installable game.**
 
 Upgrading from 1.0 (build 3.0.51) to 1.1 (build 3.0.59) keeps game content at 3.0.3. Back up the complete save before updating. Retain the same installation identity and application container rather than uninstalling first; compatible resources can be reused. A thin update cannot bootstrap a first installation. All room members need coordinated-wait support; return readiness is automatic.

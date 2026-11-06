@@ -75,11 +75,11 @@ iPad 与 Duo 展开竖屏提供六页副屏和岛民管理界面；普通 iPhone
 ## 获取源码与构建
 
 ```sh
-git clone --depth 1 --branch v1.1 https://github.com/ShawndYang/AnimalDuo.git
+git clone --depth 1 https://github.com/ShawndYang/AnimalDuo.git
 cd AnimalDuo
 ```
 
-构建步骤见[中文构建说明](docs/BUILD.zh-CN.md)及[英文源码说明](PUBLIC-SOURCE.md)。本仓库保留完整动森配置、运行宿主、构建工具和组件许可；其他游戏的大型配置及截图图库不在此专用源码中，少量元数据仅供工具回归测试。
+main 包含发布后的 SDK 兼容、震动测试与 Python 检查修复；v1.1 标签和发布页下载保留原始冻结源码。构建步骤见[中文构建说明](docs/BUILD.zh-CN.md)及[英文源码说明](PUBLIC-SOURCE.md)。本仓库保留完整动森配置、运行宿主、构建工具和组件许可；其他游戏的大型配置及截图图库不在此专用源码中，少量元数据仅供工具回归测试。
 
 公开内容为源码，不是可直接游玩的安装包。自行准备匹配的游戏本体、3.0.3 更新、所需 DLC、字体和主机密钥，并放在源码目录之外。
 

@@ -104,6 +104,8 @@ One line per symptom in the [subsystem references](../reference/): what you see 
 
 ## Services and SDK calls
 
+- the iOS compile and unsigned-app jobs fail with unknown `UIHingeInteraction` / `UIHingeInteractionUpdate` types under Xcode 26.6's iOS 26.5 SDK. → [Hinge observer declarations are absent in older iOS SDKs](../reference/services.md#hinge-observer-declarations-are-absent-in-older-ios-sdks)
+- the fake player's idle-stop assertion intermittently fails on a busy hosted runner after a fixed 1.1-second sleep. → [Haptics unit checks race delayed timer delivery](../reference/services.md#haptics-unit-checks-race-delayed-timer-delivery)
 - `sm::Initialize` aborts right after `ConnectToNamedPort` (SVC 0x1F) and `SendSyncRequest` (0x21); abort inside `nn::sm::Initialize`, the log showing `SVC 0x1f` (ConnectToNamedPort, port name `sm:`) and `SVC 0x21` answered by placeholders, then an `nn::diag` abort; abort with no message at start-up in a service call the host has no hook for (`Break` from `sdk+…` with an `nn::diag` backtrace). → [SDK calls that open a system service through sm](../reference/services.md#sdk-calls-that-open-a-system-service-through-sm)
 - a game update aborts at boot where the base game ran. → [A game update imports SDK calls the base game did not](../reference/services.md#a-game-update-imports-sdk-calls-the-base-game-did-not)
 - abort in `sm::Initialize` under `sf::hipc::InitializeHipcServiceResolution`, right after the first frames (from `main+0x5b8198`). → [Game-linked HIPC clients of system services](../reference/services.md#game-linked-hipc-clients-of-system-services)

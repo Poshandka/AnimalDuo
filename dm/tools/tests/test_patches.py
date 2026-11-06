@@ -12,6 +12,7 @@ import sys
 import tempfile
 import unittest
 from unittest import mock
+from typing import Any
 
 REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO / 'dm/tools')); sys.path.insert(0, str(REPO / 'dm/games'))
@@ -102,7 +103,8 @@ class ExternalRegistry(unittest.TestCase):
         return p
 
     def registry(self, roots=None):
-        ns = dict(__file__=str(self.tools / 'patch_nso.py'), os=os, glob=glob, importlib=importlib)
+        # exec installs heterogeneous registry tables in this module namespace.
+        ns: dict[str, Any] = dict(__file__=str(self.tools / 'patch_nso.py'), os=os, glob=glob, importlib=importlib)
         with mock.patch.dict(os.environ, DM_GAMES_DIR=os.pathsep.join(map(str, roots or [self.external]))):
             exec(REGISTRY_CODE, ns)
         return ns['PATCHES'], ns['PATCH_WHERE']
