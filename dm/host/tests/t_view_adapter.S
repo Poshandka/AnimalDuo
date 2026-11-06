@@ -101,6 +101,8 @@ _dm_code_00264a10: ret
 .p2align 4
 .globl _dm_code_049adc80
 _dm_code_049adc80: .space 16
+.globl _dm_code_0474de58
+_dm_code_0474de58: .space 16
 
 .text
 .globl _test_footer_match
@@ -131,3 +133,79 @@ _dm_return_0027d4c4:
 .p2align 4
 .globl _dm_code_049f2b70
 _dm_code_049f2b70: .space 16
+
+.text
+.p2align 2
+.globl _dm_return_0029a18c
+_dm_return_0029a18c: ret
+// Check the draw callback's full argument and scratch-register contract.
+.globl _test_keyboard_window_abi
+_test_keyboard_window_abi:
+    stp x19, x30, [sp, #-16]!
+    mov x19, x1
+    mov x1, #257
+    mov x2, #514
+    mov x3, #771
+    mov x4, #1028
+    mov x5, #1285
+    mov x6, #1542
+    mov x7, #1799
+    mov x8, #2056
+    mov x9, #2313
+    mov x10, #2570
+    mov x11, #2827
+    mov x12, #3084
+    mov x13, #3341
+    mov x14, #3598
+    mov x15, #3855
+    mov x16, #4112
+    mov x17, #4369
+    movi v0.16b, #0x12
+    mov v1.16b, v0.16b
+    mov v2.16b, v0.16b
+    mov v3.16b, v0.16b
+    cmp xzr, xzr
+    bl _dm_view_keyboard_window
+    stp x0, x1, [x19, #0]
+    stp x2, x3, [x19, #16]
+    stp x4, x5, [x19, #32]
+    stp x6, x7, [x19, #48]
+    stp x8, x9, [x19, #64]
+    stp x10, x11, [x19, #80]
+    stp x12, x13, [x19, #96]
+    stp x14, x15, [x19, #112]
+    stp x16, x17, [x19, #128]
+    mrs x9, nzcv
+    str x9, [x19, #144]
+    stp q0, q1, [x19, #160]
+    stp q2, q3, [x19, #192]
+    ldp x19, x30, [sp], #16
+    ret
+
+
+.text
+.p2align 2
+.globl _dm_code_00265220
+_dm_code_00265220:
+    ldrb w8, [x0, #0x18b]
+    cbnz w8, Ltest_transition_uploaded
+    mov w8, #1
+    strb w8, [x0, #0x18b]
+    ldp q0, q1, [x0, #0x80]
+    ldr q2, [x0, #0xa0]
+    stp q0, q1, [x1]
+    str q2, [x1, #0x20]
+Ltest_transition_uploaded:
+    ret
+.globl _test_transition_fast
+_test_transition_fast:
+    stp x19, x30, [sp, #-32]!
+    str x20, [sp, #16]
+    mov x19, x0
+    mov x20, x1
+    mov x0, x1
+    add x1, x2, #0x40
+    bl _dm_view_transition_fast_call
+    ldr x20, [sp, #16]
+    ldp x19, x30, [sp], #32
+    ret

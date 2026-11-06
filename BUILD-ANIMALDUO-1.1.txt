@@ -1,0 +1,45 @@
+AnimalDuo 1.1 / application build 3.0.59 / game 3.0.3
+
+Use the complete ACNH profile and user-owned external game inputs described in
+PUBLIC-SOURCE.md and docs/BUILD.zh-CN.md. This source includes the current native
+host, registered guest adapter source, build tools, dependencies and licenses.
+It does not contain extracted game modules, shaders, generated resident templates,
+fonts, saves, cloud checkpoints or raw validation recordings.
+
+Prepare matching game 3.0.3 base/update/DLC, patched NSOs and the verified starter-
+dialogue merged RomFS outside this repository. Build shader libraries through the
+unchanged chain d374e783beec. Generate optional resident templates/catalog from the
+pinned external NHSE source; preserve its license and corresponding source when
+redistributing a build that contains them.
+
+For iOS, use GAME=01006F8002326000 and dm/ios/tools/build_ipa.sh --prepare-xcode
+with W, PATCHED, ROMFS, MSL_IOS, AOC, FONT_PY, DM_CONTROL_NACP,
+DM_RESIDENT_CATALOG and DM_RESIDENT_LICENSE pointing to external prepared inputs.
+Build the generated scheme in Release for generic/platform=iOS with
+CURRENT_PROJECT_VERSION=3.0.59, CODE_SIGNING_ALLOWED=NO and
+CODE_SIGNING_REQUIRED=NO. The frozen local build used Xcode 27.2 and a generic
+arm64 CPU baseline, minimum iOS/iPadOS 26. VERSION is the source release 1.1;
+APP_BUILD records its native application build. Neither changes the game's 3.0.3
+content version or original target speed.
+
+Native Mac builds use make -C dm/host GAME=01006F8002326000; use a compatible
+Apple Silicon CPU baseline and the packer described in PUBLIC-SOURCE.md.
+The public snapshot's fixture profiles are opt-in metadata for tool tests, not
+additional installed game profiles. Keep this dedicated source scope intact.
+
+Local play uses DM_LDN=1, the normal local-network permission and matching game
+versions. The host's DM_LDN_WAIT_SECONDS defaults to 30; only 60 selects the longer
+limit. All room members must support waiting. Old native peers retain ordinary
+LAN compatibility. This is bounded suspension accommodation, not guaranteed
+background CPU time or reconnection after process termination.
+
+A compatible thin update can retain already installed immutable resources.
+Generate and validate the current resource descriptor normally for the first
+installation; never bypass it with mismatched content. Do not commit generated
+Gen/, app bundles, IPA files, resource stores, logs or private signing material.
+
+Production code matches the frozen 3.0.59 source. Public preparation updates docs,
+normalizes illustrative network test addresses, preserves existing lightweight
+fixture adaptations and excludes private data. SOURCE-REVIEW.json and the file
+hash manifest describe this candidate; historical game/UI results are summarized
+in RELEASES/1.1.md. No new physical-device acceptance is inferred from publication.

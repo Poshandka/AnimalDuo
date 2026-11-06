@@ -37,3 +37,23 @@ record.tsv
 log.txt
 *.crash
 *.ips
+
+# Game input and generated checkpoint/resource output (kept outside source)
+*.nsp
+*.nsz
+*.xci
+*.nca
+*.ncz
+*.nso
+*.patched.bin
+*.metallib
+*.ttf
+*.otf
+RomFS/
+romfs/
+main.dat
+mainHeader.dat
+personal.dat
+personalHeader.dat
+*.bookmark
+*.log

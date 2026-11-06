@@ -17,8 +17,9 @@ private struct SettingRow: View {
     @ObservedObject var m: LauncherModel
 
     private var locked: Bool { m.fromFile.contains(s.env) }
+    private func settingText(_ key: String) -> String { s.env == "DM_LDN_WAIT_SECONDS" ? dm_local_play_text(key) : key }
     private var note: String {
-        locked ? (s.note.isEmpty ? "" : s.note + " · ") + "Set by an env file" : s.note
+        locked ? (s.note.isEmpty ? "" : settingText(s.note) + " · ") + "Set by an env file" : settingText(s.note)
     }
     private var rangeValue: Binding<Double> {
         Binding(get: { Double(m.values[s.env] ?? s.def) ?? s.max ?? 1 },
@@ -28,7 +29,7 @@ private struct SettingRow: View {
 
     private var settingLabel: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(s.label)
+            Text(settingText(s.label))
             if !note.isEmpty { Text(note).font(.footnote).foregroundStyle(.secondary) }
         }
     }
@@ -38,7 +39,7 @@ private struct SettingRow: View {
             switch s.kind {
             case "choice":
                 Picker(selection: m.binding(s)) {
-                    ForEach(s.options ?? [], id: \.[0]) { Text($0[1]).tag($0[0]) }
+                    ForEach(s.options ?? [], id: \.[0]) { Text(settingText($0[1])).tag($0[0]) }
                 } label: {
                     settingLabel
                 }

@@ -1,0 +1,14 @@
+"Local play is paused" = "\U8054\U673a\U5df2\U6682\U505c";
+"Preparing a brief pause" = "\U6b63\U5728\U51c6\U5907\U6682\U79bb\U7b49\U5f85";
+"Coordinating all players. Please wait." = "\U6b63\U5728\U534f\U8c03\U6240\U6709\U73a9\U5bb6\Uff0c\U8bf7\U7a0d\U5019\U3002";
+"Restoring local play" = "\U6b63\U5728\U6062\U590d\U8054\U673a";
+"Checking that every player is ready." = "\U6b63\U5728\U786e\U8ba4\U6240\U6709\U73a9\U5bb6\U5df2\U5c31\U7eea\U3002";
+"Local-play wait ended" = "\U8054\U673a\U7b49\U5f85\U5df2\U7ed3\U675f";
+"Return to the game and visit the island again." = "\U8bf7\U8fd4\U56de\U6e38\U620f\Uff0c\U91cd\U65b0\U767b\U5c9b\U3002";
+"Waiting for a player to return. %d seconds remaining." = "\U7b49\U5f85\U73a9\U5bb6\U8fd4\U56de\Uff0c\U5269\U4f59 %d \U79d2\U3002";
+"End local play" = "\U7ed3\U675f\U8054\U673a";
+"Return to game" = "\U8fd4\U56de\U6e38\U620f";
+"Local-play wait limit" = "\U8054\U673a\U6682\U79bb\U7b49\U5f85\U4e0a\U9650";
+"30 seconds" = "30 \U79d2";
+"60 seconds" = "60 \U79d2";
+"Host setting. All players pause during a brief absence. Compatible app versions are required; iOS may end the app before this limit." = "\U7531\U623f\U4e3b\U8bbe\U7f6e\U3002\U6682\U79bb\U65f6\U6240\U6709\U73a9\U5bb6\U4e00\U8d77\U7b49\U5f85\Uff0c\U5404\U8bbe\U5907\U9700\U8981\U517c\U5bb9\U7248\U672c\U3002iOS \U53ef\U80fd\U63d0\U524d\U7ed3\U675f\U5e94\U7528\U3002";

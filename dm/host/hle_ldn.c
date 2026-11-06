@@ -17,10 +17,14 @@
 
 #define LAN_SERVICE "_nxnative-ldn._tcp"
 enum { LAN_VERSION = 1, LAN_MAX_DISCOVERED = 32, LAN_MAX_CLIENTS = 16,
-       LAN_JOIN = 1, LAN_SNAPSHOT, LAN_PING, LAN_PONG, LAN_FAILURE, LAN_EXIT };
+       LAN_JOIN = 1, LAN_SNAPSHOT, LAN_PING, LAN_PONG, LAN_FAILURE, LAN_EXIT,
+       LAN_BACKGROUND, LAN_HOLD, LAN_HOLD_ACK, LAN_CONTINUE };
+enum { LAN_CAP_WAIT = 1, LAN_CAP_ROOM_WAIT = 2 };
 typedef struct { uint8_t magic[4]; uint16_t version, op; uint32_t size, result; } lan_header;
 typedef struct { dm_ldn_node node; uint8_t session[16], proof[32]; } lan_join;
 typedef struct { int fd, node; size_t have; uint8_t input[sizeof(lan_header) + sizeof(lan_join)]; uint64_t seen, opened; } lan_client;
+typedef struct { uint64_t token; uint32_t remaining_ms; uint8_t away, phase, reserved[2]; } lan_hold;
+_Static_assert(sizeof(lan_hold) == 16, "native wait frame");
 typedef struct { int used, valid; char name[64]; DNSServiceRef resolver; uint32_t ip; uint16_t port; dm_ldn_info info; } lan_room;
 static struct {
     pthread_mutex_t lock; pthread_cond_t changed; pthread_t thread;
@@ -28,11 +32,19 @@ static struct {
     uint16_t port; uint64_t revision, event; dm_ldn_mac mac;
     dm_ldn_info info; dm_ldn_config config; dm_ldn_security security;
     dm_ldn_update updates[8]; dm_ldn_mac filters[8]; int filter_count;
+    struct {
+        uint64_t token, deadline, pending_deadline, local_seq, handled_seq, failed_until;
+        unsigned away, acks, capabilities;
+        int phase, local_background, local_pending, sent_background, abort, limit_ms;
+    } wait;
     lan_room rooms[LAN_MAX_DISCOVERED];
 } lan = {.lock = PTHREAD_MUTEX_INITIALIZER, .changed = PTHREAD_COND_INITIALIZER,
          .listener = -1, .wake = {-1, -1}, .station = -1};
 static pthread_mutex_t ip_lock = PTHREAD_MUTEX_INITIALIZER;
 static _Atomic uint32_t local_ip, local_mask;
+static _Atomic int wait_gate;
+static void wait_end_locked(int failed, uint64_t now);
+static void wait_apply(void);
 
 int dm_lan_enabled(void) { const char *e = getenv("DM_LDN"); return e && atoi(e) != 0; }
 static uint64_t lan_ms(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec * 1000ull + t.tv_nsec / 1000000; }
@@ -43,7 +55,8 @@ static int private_ip(uint32_t ip) {
 }
 static void select_ip(void) {
     pthread_mutex_lock(&ip_lock);
-    uint32_t ip = 0, mask = 0; const char *override = getenv("DM_LDN_BIND_IP");
+    uint32_t ip = 0, mask = 0; int best_scope = 0; char interface[IF_NAMESIZE] = {0};
+    const char *override = getenv("DM_LDN_BIND_IP");
     struct in_addr requested = {0};
     if (override && (!inet_pton(AF_INET, override, &requested) || !private_ip(requested.s_addr))) {
         LOG("[RED] ldn: DM_LDN_BIND_IP is not a local IPv4 address");
@@ -51,16 +64,27 @@ static void select_ip(void) {
         struct ifaddrs *all = NULL;
         if (!getifaddrs(&all)) {
             for (struct ifaddrs *p = all; p; p = p->ifa_next) {
-                if (!p->ifa_addr || p->ifa_addr->sa_family != AF_INET || !(p->ifa_flags & IFF_UP)) continue;
+                if (!p->ifa_name || !p->ifa_addr || p->ifa_addr->sa_family != AF_INET || !(p->ifa_flags & IFF_UP)) continue;
                 uint32_t a = ((struct sockaddr_in *)p->ifa_addr)->sin_addr.s_addr;
                 if (override ? a != requested.s_addr : (strncmp(p->ifa_name, "en", 2) || !private_ip(a))) continue;
+                // Enumeration can put a USB link-local interface before Wi-Fi.
+                // Prefer a private LAN address; retain link-local-only networks
+                // and exact diagnostic overrides rather than assuming an order.
+                int scope = (ntohl(a) >> 16) == 0xa9fe ? 1 : 2;
+                if (!override && scope <= best_scope) continue;
                 ip = a; mask = p->ifa_netmask ? ((struct sockaddr_in *)p->ifa_netmask)->sin_addr.s_addr : htonl(0xffffff00);
-                break;
+                best_scope = scope; snprintf(interface, sizeof interface, "%s", p->ifa_name);
+                if (override) break;
             }
             freeifaddrs(all);
         }
     }
     atomic_store(&local_ip, ip); atomic_store(&local_mask, mask);
+    if (ip && getenv("DM_NET_LOG")) {
+        char address[INET_ADDRSTRLEN]; inet_ntop(AF_INET, &ip, address, sizeof address);
+        LOG("ldn: selected interface %s, address %s (%s)", interface, address,
+            override ? "explicit override" : best_scope == 1 ? "link-local fallback" : "private LAN");
+    }
     pthread_mutex_unlock(&ip_lock);
 }
 uint32_t dm_lan_ip(void) { if (!atomic_load(&local_ip)) select_ip(); return atomic_load(&local_ip); }
@@ -80,7 +104,13 @@ int dm_lan_peers(uint32_t *ips, int capacity) {
     pthread_mutex_unlock(&lan.lock); return n;
 }
 int dm_lan_peer(uint32_t ip) { uint32_t peers[8]; int n = dm_lan_peers(peers, 8); for (int i = 0; i < n; i++) if (peers[i] == ip) return 1; return 0; }
-static void wake_worker(void) { uint8_t b = 1; if (lan.wake[1] >= 0) (void)write(lan.wake[1], &b, 1); }
+static void wake_worker(void) {
+    // Lifecycle notifications can race finalization; keep the descriptor alive
+    // until this nonblocking write completes, before it can be closed/reused.
+    uint8_t b = 1; pthread_mutex_lock(&lan.lock);
+    if (lan.wake[1] >= 0) (void)write(lan.wake[1], &b, 1);
+    pthread_mutex_unlock(&lan.lock);
+}
 static void changed_locked(void) { lan.revision++; pthread_cond_broadcast(&lan.changed); }
 static void signal_change(void) {
     pthread_mutex_lock(&lan.lock); uint64_t e = lan.event; pthread_mutex_unlock(&lan.lock);
@@ -90,7 +120,8 @@ static void discovery_failed(int error) {
     LOG("[RED] ldn: Bonjour failed (%d); check Local Network permission", error);
     pthread_mutex_lock(&lan.lock);
     lan.state = DM_LDN_ERROR; lan.reason = 2; lan.browse = 0; changed_locked();
-    pthread_mutex_unlock(&lan.lock); signal_change();
+    wait_end_locked(1, lan_ms());
+    pthread_mutex_unlock(&lan.lock); signal_change(); wait_apply();
 }
 static void nonblock(int fd) { fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK); int yes = 1; setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &yes, sizeof yes); }
 static int wait_fd(int fd, short events, uint64_t deadline) {
@@ -147,13 +178,15 @@ static void remove_node(int node) {
     if (node > 0 && node < 8 && lan.info.nodes[node].connected) {
         lan.info.nodes[node].connected = 0; lan.info.count--; lan.updates[node].change |= 2; changed_locked();
         LOG("ldn: station %d left, %u node(s)", node, lan.info.count);
+        lan.wait.capabilities &= ~(1u << node);
+        if (lan.wait.phase) lan.wait.abort = 1;
     }
     pthread_mutex_unlock(&lan.lock); signal_change();
 }
 static uint32_t accept_join(const lan_join *join, uint32_t peer_ip, int *node) {
     uint32_t result = DM_LDN_CONNECT_FAILED; uint8_t proof[32], difference = 0;
     pthread_mutex_lock(&lan.lock);
-    if (lan.state != DM_LDN_HOST) { result = DM_LDN_BAD_STATE; goto end; }
+    if (lan.state != DM_LDN_HOST || lan.wait.phase || lan.wait.local_background) { result = DM_LDN_BAD_STATE; goto end; }
     proof_for(join, &lan.security, proof);
     for (int i = 0; i < 32; i++) difference |= proof[i] ^ join->proof[i];
     if (difference || memcmp(join->session, lan.info.id.session, 16) || join->node.ip != ntohl(peer_ip) || join->node.version != lan.config.version) goto end;
@@ -222,17 +255,21 @@ static void browse_reply(DNSServiceRef ref, DNSServiceFlags flags, uint32_t inte
 static void station_lost(int reason) {
     pthread_mutex_lock(&lan.lock);
     if (lan.state == DM_LDN_CONNECTED) { lan.state = DM_LDN_STATION; lan.reason = reason; memset(&lan.info, 0, sizeof lan.info); changed_locked(); }
-    pthread_mutex_unlock(&lan.lock); signal_change();
+    wait_end_locked(1, lan_ms());
+    pthread_mutex_unlock(&lan.lock); signal_change(); wait_apply();
 }
+#include "ldn_wait.inc"
 static void *lan_worker(void *unused) {
     (void)unused; DNSServiceRef registration = NULL, browser = NULL;
     lan_client clients[LAN_MAX_CLIENTS]; for (int i = 0; i < LAN_MAX_CLIENTS; i++) clients[i].fd = -1;
-    uint64_t published = 0, sent = 0, last_ping = 0, station_seen = lan_ms(); size_t station_have = 0; int tracked_station = -1;
+    uint64_t published = 0, sent = 0, last_ping = 0, station_seen = lan_ms(), announced_hold = 0;
+    size_t station_have = 0; int tracked_station = -1;
     uint8_t station_input[sizeof(lan_header) + sizeof(dm_ldn_info)];
     for (;;) {
         pthread_mutex_lock(&lan.lock);
         int stop = lan.stop, state = lan.state, browsing = lan.browse, station = lan.station;
-        int drop = lan.drop_station; lan.drop_station = 0;
+        int drop = lan.drop_station, reason = lan.reason; lan.drop_station = 0;
+        unsigned capabilities = wait_caps_locked();
         uint64_t revision = lan.revision; dm_ldn_info info = lan.info;
         if (drop && station >= 0) { lan.station = -1; station_have = 0; }
         pthread_mutex_unlock(&lan.lock);
@@ -242,7 +279,7 @@ static void *lan_worker(void *unused) {
         if (state != DM_LDN_HOST) {
             if (registration) { DNSServiceRefDeallocate(registration); registration = NULL; published = 0; }
             for (int i = 0; i < LAN_MAX_CLIENTS; i++) if (clients[i].fd >= 0) {
-                if (clients[i].node > 0) send_frame(clients[i].fd, LAN_EXIT, 3, NULL, 0);
+                if (clients[i].node > 0) send_frame(clients[i].fd, LAN_EXIT, reason == 6 ? 6 : 3, NULL, 0);
                 close(clients[i].fd); clients[i].fd = -1;
             }
         } else if (revision != published) {
@@ -267,20 +304,21 @@ static void *lan_worker(void *unused) {
             for (int i = 0; i < LAN_MAX_CLIENTS; i++) if (clients[i].fd >= 0 && clients[i].node > 0) {
                 pthread_mutex_lock(&lan.lock); int connected = lan.info.nodes[clients[i].node].connected; pthread_mutex_unlock(&lan.lock);
                 if (!connected) send_frame(clients[i].fd, LAN_EXIT, 5, NULL, 0);
-                if (!connected || send_frame(clients[i].fd, LAN_SNAPSHOT, 0, &info, sizeof info)) { close(clients[i].fd); clients[i].fd = -1; if (connected) remove_node(clients[i].node); }
+                if (!connected || send_frame(clients[i].fd, LAN_SNAPSHOT, capabilities, &info, sizeof info)) { close(clients[i].fd); clients[i].fd = -1; if (connected) remove_node(clients[i].node); }
             }
             sent = revision;
         }
         uint64_t now = lan_ms();
+        int holding = atomic_load(&wait_gate);
         if (now - last_ping >= 2000) {
             last_ping = now;
             for (int i = 0; i < LAN_MAX_CLIENTS; i++) if (clients[i].fd >= 0) {
-                if ((clients[i].node < 0 && now - clients[i].opened > 5000) || now - clients[i].seen > 10000 ||
+                if ((clients[i].node < 0 && now - clients[i].opened > 5000) || (!holding && now - clients[i].seen > 10000) ||
                     (clients[i].node > 0 && send_frame(clients[i].fd, LAN_PING, 0, NULL, 0))) {
                     close(clients[i].fd); clients[i].fd = -1; remove_node(clients[i].node);
                 }
             }
-            if (station >= 0 && (now - station_seen > 10000 || send_frame(station, LAN_PING, 0, NULL, 0))) {
+            if (station >= 0 && ((!holding && now - station_seen > 10000) || send_frame(station, LAN_PING, 0, NULL, 0))) {
                 pthread_mutex_lock(&lan.lock); if (lan.station == station) { close(station); lan.station = -1; } pthread_mutex_unlock(&lan.lock);
                 station = -1; station_have = 0; station_lost(6);
             }
@@ -295,8 +333,8 @@ static void *lan_worker(void *unused) {
         for (int i = 0; i < LAN_MAX_CLIENTS; i++) WATCH(clients[i].fd, 4, i, NULL);
         WATCH(station, 5, 0, NULL);
         #undef WATCH
-        if (poll(pf, count, 1000) <= 0) continue;
-        for (int k = 0; k < count; k++) if (pf[k].revents) {
+        int ready = poll(pf, count, holding ? 200 : 1000);
+        for (int k = 0; ready > 0 && k < count; k++) if (pf[k].revents) {
             if (!kinds[k]) { uint8_t bytes[64]; while (read(lan.wake[0], bytes, sizeof bytes) > 0) {} }
             else if (kinds[k] == 1) {
                 for (;;) {
@@ -334,6 +372,14 @@ static void *lan_worker(void *unused) {
                         struct sockaddr_in peer = {0}; socklen_t size = sizeof peer; getpeername(c->fd, (struct sockaddr *)&peer, &size);
                         uint32_t result = accept_join(&join, peer.sin_addr.s_addr, &c->node);
                         if (result) { send_frame(c->fd, LAN_FAILURE, result, NULL, 0); close(c->fd); c->fd = -1; }
+                        else {
+                            pthread_mutex_lock(&lan.lock);
+                            if (h.result & LAN_CAP_WAIT) lan.wait.capabilities |= 1u << c->node;
+                            changed_locked(); pthread_mutex_unlock(&lan.lock);
+                        }
+                    } else if (c->node > 0 && h.op == LAN_BACKGROUND && !h.size && h.result <= 1) wait_host_request(c->node, h.result, lan_ms());
+                    else if (c->node > 0 && h.op == LAN_HOLD_ACK && h.size == sizeof(uint64_t)) {
+                        uint64_t token; memcpy(&token, c->input + sizeof h, sizeof token); wait_host_ack(c->node, token);
                     } else if (h.op == LAN_PING && !h.size) send_frame(c->fd, LAN_PONG, 0, NULL, 0);
                     else if (h.op != LAN_PONG || h.size) { close(c->fd); c->fd = -1; remove_node(c->node); }
                     c->have -= frame_size; memmove(c->input, c->input + frame_size, c->have);
@@ -350,8 +396,11 @@ static void *lan_worker(void *unused) {
                         dm_ldn_info next; memcpy(&next, station_input + sizeof h, sizeof next);
                         pthread_mutex_lock(&lan.lock);
                         if (!valid_info(&next) || memcmp(&next.id, &lan.info.id, sizeof next.id)) lost = 1;
-                        else if (lan.state == DM_LDN_CONNECTED) update_info_locked(&next);
+                        else if (lan.state == DM_LDN_CONNECTED) { lan.wait.capabilities = h.result & 3u; update_info_locked(&next); }
                         pthread_mutex_unlock(&lan.lock); signal_change();
+                    } else if ((h.op == LAN_HOLD || h.op == LAN_CONTINUE) && h.size == sizeof(lan_hold)) {
+                        lan_hold hold; memcpy(&hold, station_input + sizeof h, sizeof hold);
+                        if (wait_client_frame(station, h.op, &hold)) lost = 1;
                     } else if (h.op == LAN_EXIT && !h.size) { lost = 1; lost_reason = h.result >= 1 && h.result <= 6 ? h.result : 2; }
                     else if (h.op == LAN_PING && !h.size) send_frame(station, LAN_PONG, 0, NULL, 0);
                     else if (h.op != LAN_PONG || h.size) lost = 1;
@@ -363,6 +412,7 @@ static void *lan_worker(void *unused) {
                 }
             }
         }
+        wait_worker(clients, station, &announced_hold);
     }
     if (registration) DNSServiceRefDeallocate(registration); if (browser) DNSServiceRefDeallocate(browser);
     for (int i = 0; i < LAN_MAX_DISCOVERED; i++) if (lan.rooms[i].resolver) { DNSServiceRefDeallocate(lan.rooms[i].resolver); lan.rooms[i].resolver = NULL; }
@@ -371,7 +421,8 @@ static void *lan_worker(void *unused) {
         if (clients[i].node > 0) send_frame(clients[i].fd, LAN_EXIT, exit_reason, NULL, 0);
         close(clients[i].fd);
     }
-    pthread_mutex_lock(&lan.lock); if (lan.station >= 0) { close(lan.station); lan.station = -1; } pthread_mutex_unlock(&lan.lock);
+    pthread_mutex_lock(&lan.lock); if (lan.station >= 0) { close(lan.station); lan.station = -1; }
+    wait_end_locked(0, lan_ms()); pthread_mutex_unlock(&lan.lock); wait_apply();
     return NULL;
 }
 
@@ -389,6 +440,10 @@ uint32_t dm_ldn_init(void) {
     lan.listener = fd; lan.port = ntohs(address.sin_port); nonblock(fd); nonblock(lan.wake[0]); nonblock(lan.wake[1]);
     arc4random_buf(lan.mac.bytes, 6); lan.mac.bytes[0] = (lan.mac.bytes[0] | 2) & ~1;
     lan.stop = 0; lan.reason = 0; lan.state = DM_LDN_INIT; lan.event = 0; lan.browse = 0; lan.drop_station = 0; lan.filter_count = 0;
+    wait_end_locked(0, lan_ms()); lan.wait.capabilities = 1; lan.wait.token = 0; lan.wait.failed_until = 0;
+    lan.wait.handled_seq = lan.wait.local_seq;
+    const char *wait_seconds = getenv("DM_LDN_WAIT_SECONDS");
+    lan.wait.limit_ms = wait_seconds && !strcmp(wait_seconds, "60") ? 60000 : 30000;
     memset(lan.rooms, 0, sizeof lan.rooms); memset(&lan.info, 0, sizeof lan.info); memset(lan.updates, 0, sizeof lan.updates); changed_locked();
     int error = pthread_create(&lan.thread, NULL, lan_worker, NULL);
     if (error) { close(fd); close(lan.wake[0]); close(lan.wake[1]); lan.listener = lan.wake[0] = lan.wake[1] = -1; lan.state = DM_LDN_NONE; pthread_mutex_unlock(&lan.lock); return RES_FAIL; }
@@ -399,7 +454,7 @@ uint32_t dm_ldn_init(void) {
 void dm_ldn_finalize(void) {
     if (getenv("DM_NET_TRACE")) LOG("ldn: finalize");
     pthread_mutex_lock(&lan.lock); if (!lan.running) { pthread_mutex_unlock(&lan.lock); return; }
-    lan.stop = 1; pthread_mutex_unlock(&lan.lock); wake_worker(); dm_host_thread_join(lan.thread, NULL);
+    lan.stop = 1; pthread_mutex_unlock(&lan.lock); wait_apply(); wake_worker(); dm_host_thread_join(lan.thread, NULL);
     pthread_mutex_lock(&lan.lock); close(lan.listener); close(lan.wake[0]); close(lan.wake[1]);
     lan.listener = lan.wake[0] = lan.wake[1] = -1; lan.running = 0; lan.state = DM_LDN_NONE; changed_locked(); pthread_mutex_unlock(&lan.lock); signal_change();
 }
@@ -418,6 +473,7 @@ static void normalize_intent(dm_ldn_intent *id) { if (id->communication_id == -1
 uint32_t dm_ldn_create(const dm_ldn_config *config, const dm_ldn_security *security, const dm_ldn_secret *secret, const dm_ldn_user *user, int count, const dm_ldn_address *addresses) {
     if (!config || !security || !user || config->capacity < 1 || config->capacity > 8 || config->version < 0 || security->size < 16 || security->size > 64 || count < 0 || count > 8 || (count && !addresses)) return DM_LDN_BAD_ARGUMENT;
     pthread_mutex_lock(&lan.lock); if (lan.state != DM_LDN_AP) { pthread_mutex_unlock(&lan.lock); return DM_LDN_BAD_STATE; }
+    wait_end_locked(0, lan_ms()); lan.wait.capabilities = 1; lan.wait.failed_until = 0;
     dm_ldn_info info = {0}; info.id.intent = config->intent; normalize_intent(&info.id.intent);
     arc4random_buf(info.id.session, 16); arc4random_buf(info.server_random, 16);
     if (secret) { memcpy(info.id.session, secret->session, 16); memcpy(info.server_random, secret->server_random, 16); }
@@ -474,7 +530,7 @@ uint32_t dm_ldn_connect(const dm_ldn_info *info, const dm_ldn_security *security
     if (connect(fd, (void *)&remote, sizeof remote) && (errno != EINPROGRESS || wait_fd(fd, POLLOUT, deadline))) goto end;
     int error = 0; socklen_t elen = sizeof error; if (getsockopt(fd, SOL_SOCKET, SO_ERROR, &error, &elen) || error) goto end;
     lan_join join = {0}; join.node = make_node(user, version, mac); memcpy(join.session, info->id.session, 16); proof_for(&join, security, join.proof);
-    if (send_frame(fd, LAN_JOIN, 0, &join, sizeof join)) goto end;
+    if (send_frame(fd, LAN_JOIN, LAN_CAP_WAIT, &join, sizeof join)) goto end;
     lan_header h; if (transfer(fd, &h, sizeof h, 0, deadline) || !valid_header(&h, sizeof(dm_ldn_info))) goto end;
     if (h.op == LAN_FAILURE && !h.size) { result = h.result ? h.result : DM_LDN_CONNECT_FAILED; goto end; }
     dm_ldn_info snapshot;
@@ -483,9 +539,16 @@ uint32_t dm_ldn_connect(const dm_ldn_info *info, const dm_ldn_security *security
     if (!found) goto end;
     pthread_mutex_lock(&lan.lock);
     if (lan.state == DM_LDN_STATION && lan.running && !lan.stop && lan.station < 0) {
+        // Hold tokens belong to this authenticated stream, not a previously
+        // visited island whose coordinator may have used larger token values.
+        wait_end_locked(0, lan_ms()); lan.wait.token = 0; lan.wait.failed_until = 0;
         lan.station = fd; fd = -1; update_info_locked(&snapshot); lan.state = DM_LDN_CONNECTED; lan.reason = 0; result = 0;
+        lan.wait.capabilities = h.result & 3u;
+        if (lan.wait.local_background && wait_supported_locked()) {
+            lan.wait.local_seq++; lan.wait.local_pending = 1; lan.wait.pending_deadline = lan_ms() + 3000;
+        }
     }
-    pthread_mutex_unlock(&lan.lock); wake_worker(); signal_change();
+    pthread_mutex_unlock(&lan.lock); wait_apply(); wake_worker(); signal_change();
 end:
     if (fd >= 0) close(fd);
     LOG("ldn: connect %s (result %#x)", result ? "failed" : "complete", result); return result;
@@ -493,10 +556,11 @@ end:
 uint32_t dm_ldn_disconnect(int destroy) {
     pthread_mutex_lock(&lan.lock); uint32_t result = DM_LDN_BAD_STATE;
     if (lan.state == (destroy ? DM_LDN_HOST : DM_LDN_CONNECTED)) {
+        wait_end_locked(0, lan_ms());
         lan.state = destroy ? DM_LDN_AP : DM_LDN_STATION; lan.reason = destroy ? 3 : 1; lan.drop_station = !destroy;
         memset(&lan.info, 0, sizeof lan.info); changed_locked(); result = 0;
     }
-    pthread_mutex_unlock(&lan.lock); wake_worker(); signal_change(); if (getenv("DM_NET_TRACE")) LOG("ldn: %s -> %#x", destroy ? "destroy" : "disconnect", result); return result;
+    pthread_mutex_unlock(&lan.lock); wait_apply(); wake_worker(); signal_change(); if (getenv("DM_NET_TRACE")) LOG("ldn: %s -> %#x", destroy ? "destroy" : "disconnect", result); return result;
 }
 uint32_t dm_ldn_info_get(dm_ldn_info *out, dm_ldn_update *updates, int capacity) {
     if (!out || capacity < 0 || capacity > 8 || (capacity && !updates)) return DM_LDN_BAD_ARGUMENT;

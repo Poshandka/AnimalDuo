@@ -22,10 +22,13 @@ unsigned dm_view_touch_context(void) {
     if(!clock)return 0;
     uint64_t frame=atomic_load((const _Atomic uint64_t *)clock)+1;
     unsigned result=0;
-    for(unsigned i=0;i<3;i++){
+    for(unsigned i=0;i<4;i++){
         uint64_t seen=atomic_load((_Atomic uint64_t *)(at+32+i*8));
         if(seen && seen<=frame && frame-seen<=2)result|=1u<<i;
     }
+    // The embedded keyboard dialog transfers control ownership to buttons.
+    // Its stamp is meaningful only while that keyboard remains present.
+    if(!(result&1))result&=~8u;
     return result;
 }
 // An opted-in profile keeps native 2D hit rectangles in its original screen
@@ -40,10 +43,14 @@ int dm_view_touch(float *x,float *y) {
     if(!isfinite(reference) || !isfinite(target) || reference<=0 || target<=0)return 1;
     // Inline keyboards are docked to the lower edge of the expanded screen.
     // Other 2D interfaces keep their centred canonical rectangle.
-    float anchor=target<reference && (dm_view_touch_context()&1)?1:.5f;
-    float mapped=anchor+(*y-anchor)*reference/target;
-    if(*x<0 || *x>=1 || mapped<0 || mapped>=1)return 0;
-    *y=mapped;return 1;
+    float mapped_x=*x,mapped_y=*y;
+    if(target>reference)mapped_x=.5f+(*x-.5f)*target/reference;
+    else {
+        float anchor=(dm_view_touch_context()&1)?1:.5f;
+        mapped_y=anchor+(*y-anchor)*reference/target;
+    }
+    if(mapped_x<0 || mapped_x>=1 || mapped_y<0 || mapped_y>=1)return 0;
+    *x=mapped_x;*y=mapped_y;return 1;
 }
 static void publish_view_locked(void) {
     uintptr_t at=atomic_load_explicit(&g_view_state,memory_order_acquire);

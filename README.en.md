@@ -1,6 +1,6 @@
 # AnimalDuo
 
-Current release: **AnimalDuo 1.0**, based on application build **3.0.51** for game **3.0.3**. See the [Chinese release notes](RELEASES/3.0.51.md) for persistent side controls, fullscreen phones, adaptive folding, resource reuse and validation limits.
+Current release: **AnimalDuo 1.1**, based on application build **3.0.59** for game **3.0.3**. See the [Chinese release notes](RELEASES/1.1.md) for improved fullscreen presentation, transition coverage, controls and coordinated local-play waiting.
 
 [简体中文](README.md) · English · [English source guide](PUBLIC-SOURCE.md)
 
@@ -13,6 +13,20 @@ Its signature feature is an **iPad portrait companion display**, with live map, 
 The project builds on **nxnative**, using the native-execution approach originating in **d2r-mobile**, and integrates the **Eden Duo** Animal Crossing companion module. Adapted game code runs natively on Apple silicon, with graphics calls translated to Metal.
 
 **This project provides source code only. You must supply game content that you have lawfully obtained and are authorized to use, and build the project yourself. Current validation is primarily on an M4 Mac; platform-specific limits are listed below.**
+
+---
+
+**New in 1.1**
+
+- iPad landscape fills the canvas; portrait game and companion each use half the height.
+- Expanded HUD and NookPhone backgrounds, including DIY, Miles and My Designs, retain their intended coverage.
+- Black, white and translucent transition masks cover expanded margins.
+- Controls default to 3D; an old 2D setting is migrated once. Stick clicks clear the footer, and name confirmation restores landscape controls.
+- Companion busy masks cover both sides; connected controllers release space for companion content.
+- LAN address selection prefers an available private network over link-local fallback.
+- Compatible rooms can pause for a brief background absence: 30 seconds by default or 60 seconds chosen by the host, with a countdown, readiness handshake and explicit end action. Mixed old/new rooms retain ordinary LAN and disable waiting. System eviction or network loss can end a visit early.
+
+The frozen 3.0.59 build passed finite same-Mac game-process and native UI checks. Physical-device background recovery and cross-device Wi-Fi/iCloud behavior remain unverified. This release does not claim improved frame rate or unlimited background execution.
 
 ---
 
@@ -34,7 +48,7 @@ The project builds on **nxnative**, using the native-execution approach originat
   Share complete checkpoints through a common cloud folder selected by the user, with conflict selection and a local offline option. Actual cross-device cloud transfer remains unverified; two independently progressed saves cannot be merged automatically.
 
 - **Experimental local multiplayer**  
-  Matching builds and game versions provide island discovery, hosting, visits and return trips. Two independent game processes on one Mac have completed a visit; Wi-Fi play between two physical devices remains unverified.
+  Matching builds and game versions provide island discovery, hosting, visits and return trips. Two independent game processes on one Mac have completed visits, 15/35-second suspension recovery and 60-second expiry handling; physical-device Wi-Fi and background recovery remain unverified.
 
 - **Touch and controller support**  
   Use physical controllers, supported haptics, separate portrait and landscape touch layouts, and manual control visibility or automatic fade. Companion refreshes, shader prewarming, caches and graphics resource management continue to receive improvements.
@@ -63,9 +77,13 @@ See the [Animal Crossing profile note](dm/games/01006F8002326000/README.md) for 
 
 **Get the source and build**
 
-[Download 1.0 source](https://github.com/ShawndYang/AnimalDuo/releases/tag/v1.0) · [English source and build guide](PUBLIC-SOURCE.md) · [Browse the repository](https://github.com/ShawndYang/AnimalDuo)
+[Download 1.1 source](https://github.com/ShawndYang/AnimalDuo/releases/tag/v1.1) · [English source and build guide](PUBLIC-SOURCE.md) · [Browse the repository](https://github.com/ShawndYang/AnimalDuo)
 
 **The download contains source code, not an installable game.**
+
+Upgrading from 1.0 (build 3.0.51) to 1.1 (build 3.0.59) keeps game content at 3.0.3. Back up the complete save before updating. Retain the same installation identity and application container rather than uninstalling first; compatible resources can be reused. A thin update cannot bootstrap a first installation. All room members need coordinated-wait support; return readiness is automatic.
+
+Report problems with the [issue form](https://github.com/ShawndYang/AnimalDuo/issues/new?template=bug_report.yml), including build, device/system and reproduction steps. Redact personal paths and device identifiers; do not attach saves, keys or signing material.
 
 Supply the base game, 3.0.3 update, any required DLC and console keys separately, and keep them outside the source directory. The public source archive does not include these inputs, player saves or private signing material.
 

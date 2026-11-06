@@ -82,10 +82,18 @@ final class EdenManifest {
     let derived:[String:[String:Any]]
     let expressions:[String:EdenExpression]
     let widgets:[String:[EdenWidgetTemplate]]
+    let widePockets: Bool
     init(data:Data?=nil) {
         let bytes=data ?? Bundle.main.url(forResource:"companion-ui",withExtension:"json",subdirectory:"dm").flatMap{try? Data(contentsOf:$0)}
         root=(bytes.flatMap{try? JSONSerialization.jsonObject(with:$0)} as? [String:Any]) ?? [:]
         pages=Dictionary(uniqueKeysWithValues:((root["pages"] as? [[String:Any]]) ?? []).compactMap{d in (d["id"] as? String).map{($0,d)}})
+        let pockets = pages["bag"]?["widgets"] as? [[String:Any]] ?? []
+        // The pinned layout groups each slot's art and targets, then each
+        // slot's selection bubble. Check both groups before moving them.
+        widePockets = pockets.count > 1336 && (0..<40).allSatisfy { slot in
+            pockets[19 + slot * 15]["id"] as? String == "bag_slot_\(slot)" &&
+            pockets[617 + slot * 18]["need_bind"] as? String == "bag.\(slot).count"
+        }
         // Only immutable manifest templates are expanded here. Live visibility,
         // geometry, counts and input authorization are still evaluated per frame.
         widgets=pages.mapValues { page in
@@ -139,10 +147,17 @@ struct EdenNode:Identifiable {
     var action:String {data["on_tap"] as? String ?? ""}
     var payload:Int {Int((data["payload"] as? String).flatMap(Double.init) ?? (data["payload"] as? NSNumber)?.doubleValue ?? 0)}
     var draggable:Bool {data["draggable"] as? Bool==true}
+    var coversBody:Bool {
+        kind=="rect" && data["input_block"] as? Bool==true && clip==nil &&
+            rect.minX==0 && rect.minY==0 && rect.width>=1240 && rect.height>=960 && rect.height<=968
+    }
     func contains(_ p:CGPoint)->Bool {rect.contains(p) && (clip?.contains(p) ?? true)}
 }
 struct EdenFrame {
     let bindings:EdenBindings,page:String,nodes:[EdenNode],scrolls:[[String:Any]]
+    let extraWidth: Double
+    private let extraRecipeColumns: Int
+    private let wideRecipes: Bool
     static func substitution(_ s:String,_ i:Int)->String {
         var r=s.replacingOccurrences(of:"{i}",with:String(i))
         while let a=r.range(of:"{i+"),let z=r[a.upperBound...].firstIndex(of:"}"),let n=Int(r[a.upperBound..<z]) {r.replaceSubrange(a.lowerBound...z,with:String(i+n))}
@@ -154,15 +169,38 @@ struct EdenFrame {
         if let d=value as? [String:Any]{return d.mapValues{expand($0,i)}};return value
     }
     static func rectangle(_ any:Any?)->CGRect {guard let a=any as? [NSNumber],a.count==4 else{return .zero};return CGRect(x:a[0].doubleValue,y:a[1].doubleValue,width:a[2].doubleValue,height:a[3].doubleValue)}
-    @MainActor init(model:CompanionModel,manifest:EdenManifest,local:[String:Double]) {
+    @MainActor init(model:CompanionModel,manifest:EdenManifest,local:[String:Double],extraWidth:Double=0) {
         var bindingsLocal=local;bindingsLocal["ui.page"]=Double(model.page.rawValue)
         let b=EdenBindings(model.values,bindingsLocal.merging(["module_ready":1,"acnh.font":1]){a,_ in a},manifest);bindings=b
         var pg=b.number("ui.pg");if pg==0 && model.ready{pg=Double(model.page.rawValue)}
         page = b.number("host.unsupported") != 0 ? "version" : b.number("module_error") != 0 ? "error" : b.number("scene.title") != 0 ? "title" : !model.ready ? "waiting" : [1:"map",2:"bag",3:"critters",4:"diy",5:"today",6:"phone"][Int(pg)] ?? "map"
         let p=manifest.pages[page] ?? [:]
-        scrolls=(p["scrolls"] as? [[String:Any]] ?? []).filter { spec in
-            b.shown(spec) && ((spec["show_bind"] as? String).map { b.number($0) != 0 } ?? true)
+        self.extraWidth=extraWidth
+        let authoredScrolls = p["scrolls"] as? [[String:Any]] ?? []
+        let canExpandRecipes = page == "diy" && authoredScrolls.contains {
+            $0["id"] as? String == "diy" && Self.rectangle($0["rect"]) == CGRect(x:16,y:248,width:694,height:696)
+                && b.value($0["cols"]) == 5 && b.value($0["row_h"]) == 188
         }
+        let expandRecipes = canExpandRecipes && extraWidth > 0
+        wideRecipes = expandRecipes
+        let recipeColumns = expandRecipes ? Int(extraWidth / 130) : 0
+        extraRecipeColumns = recipeColumns
+        let activeScrolls = authoredScrolls.filter { spec in
+            b.shown(spec) && ((spec["show_bind"] as? String).map { b.number($0) != 0 } ?? true)
+        }.map { spec -> [String:Any] in
+            guard expandRecipes, spec["id"] as? String == "diy" else { return spec }
+            var expanded = spec
+            expanded["rect"] = [16,248,694+extraWidth,696]
+            expanded["cols"] = 5 + recipeColumns
+            return expanded
+        }
+        scrolls = activeScrolls
+        let offsets = Dictionary(activeScrolls.compactMap { spec -> (String,Double)? in
+            guard let id = spec["id"] as? String else { return nil }
+            let factor = id == "diy" ? 5.0 / Double(5 + recipeColumns) : 1
+            let limit = Self.scrollLimit(spec,b)
+            return (id, min(limit, max(0, (local["@scroll:"+id] ?? 0) * factor)))
+        }, uniquingKeysWith: { first,_ in first })
         var result:[EdenNode]=[]
         for template in manifest.widgets[page] ?? [] {
             let index=template.index,limit=template.limit
@@ -172,14 +210,27 @@ struct EdenFrame {
                 // Our checked native command menu replaces the upstream informational blocker.
                 if page=="bag" && model.number("bag.native.open") != 0 && (d["input_block"] as? Bool==true || (d["need_bind"] as? String)?.contains("ui.bag.card")==true){continue}
                 var rect=Self.rectangle(d["rect"]),clip:CGRect?
-                let cols=max(1,(d["repeat_cols"] as? NSNumber)?.intValue ?? limit)
-                rect.origin.x+=Double(i%cols)*b.value(d["repeat_dx"]);rect.origin.y+=Double(i/cols)*b.value(d["repeat_row_dy"])
+                let authoredCols = (d["repeat_cols"] as? NSNumber)?.intValue ?? limit
+                let isRecipe = expandRecipes && d["scroll"] as? String == "diy" && authoredCols == 5
+                let cols = max(1, authoredCols + (isRecipe ? recipeColumns : 0))
+                var step = b.value(d["repeat_dx"])
+                if isRecipe { step += (extraWidth - Double(recipeColumns)*130) / Double(cols) }
+                rect.origin.x+=Double(i%cols)*step;rect.origin.y+=Double(i/cols)*b.value(d["repeat_row_dy"])
                 if let k=d["x_bind"] as? String{rect.origin.x+=b.number(k)*((d["x_scale"] as? NSNumber)?.doubleValue ?? 1)}
                 if let k=d["y_bind"] as? String{rect.origin.y+=b.number(k)*((d["y_scale"] as? NSNumber)?.doubleValue ?? 1)}
+                if extraWidth > 0 {
+                    rect = Self.wideRect(rect, kind:d["type"] as? String ?? "rect",
+                                         index:index, page:page, width:extraWidth,
+                                         widePockets:manifest.widePockets, wideRecipes:expandRecipes)
+                }
                 if let s=d["scroll"] as? String {
                     guard let scroll=scrolls.first(where:{$0["id"] as? String==s}) else{continue}
                     if let k=scroll["show_bind"] as? String,b.number(k)==0{continue}
-                    clip=Self.rectangle(scroll["rect"]);rect.origin.y-=local["@scroll:"+s] ?? 0
+                    clip=Self.rectangle(scroll["rect"])
+                    if s != "diy" || !expandRecipes {
+                        clip = clip?.offsetBy(dx:extraWidth/2,dy:0)
+                    }
+                    rect.origin.y-=offsets[s] ?? 0
                     if let clip,rect.height>0 && !clip.intersects(rect){continue}
                 }
                 result.append(EdenNode(id:index*256+i,data:d,rect:rect,clip:clip))
@@ -191,12 +242,13 @@ struct EdenFrame {
         for spec in scrolls {
             guard let id=spec["id"] as? String,
                   let last=widgets.lastIndex(where: { $0["scroll"] as? String == id }) else { continue }
-            let r=Self.rectangle(spec["rect"]),cols=max(1,b.value(spec["cols"]))
+            let r=Self.rectangle(spec["rect"]).offsetBy(dx:id == "diy" && expandRecipes ? 0 : extraWidth/2,dy:0)
+            let cols=max(1,b.value(spec["cols"]))
             let total=ceil(b.number(spec["count_bind"] as? String ?? "")/cols)*b.value(spec["row_h"])
             let width=min(r.width,max(0,b.value(spec["bar_w"])))
             guard r.height>0,width>0,total>r.height,total.isFinite else { continue }
             let height=min(r.height,max(30,r.height*r.height/total))
-            let fraction=min(1,max(0,(local["@scroll:"+id] ?? 0)/(total-r.height)))
+            let fraction=(offsets[id] ?? 0)/(total-r.height)
             let track=CGRect(x:r.maxX-width,y:r.minY,width:width,height:r.height)
             let thumb=CGRect(x:track.minX,y:r.minY+fraction*(r.height-height),width:width,height:height)
             for (offset,rect,color) in [(254,track,spec["bar_track"]),(255,thumb,spec["bar"])] {
@@ -204,6 +256,65 @@ struct EdenFrame {
             }
         }
         nodes=result.sorted { $0.id < $1.id }
+    }
+    static func scrollLimit(_ spec:[String:Any], _ bindings:EdenBindings) -> Double {
+        let cols = max(1,bindings.value(spec["cols"]))
+        let height = ceil(bindings.number(spec["count_bind"] as? String ?? "") / cols) * bindings.value(spec["row_h"])
+        return max(0,height - rectangle(spec["rect"]).height)
+    }
+    func scrollScale(_ id:String) -> Double {
+        id == "diy" ? 5.0 / Double(5 + extraRecipeColumns) : 1
+    }
+    func scrollRect(_ spec:[String:Any]) -> CGRect {
+        let reflowed = spec["id"] as? String == "diy" && wideRecipes
+        return Self.rectangle(spec["rect"]).offsetBy(dx:reflowed ? 0 : extraWidth/2,dy:0)
+    }
+    private static func wideRect(_ rect:CGRect,kind:String,index:Int,page:String,width:Double,
+                                 widePockets:Bool,wideRecipes:Bool) -> CGRect {
+        guard rect.minY < 960 else { return rect }
+        var rect = rect
+        if rect.minX == 0 && rect.minY == 0 && rect.width == 1240 {
+            // Keep the full-surface art recognizable to the background pass.
+            if kind != "image" { rect.size.width += width }
+            return rect
+        }
+        if (page == "map" || page == "diy") && rect.minX == 12 && rect.width == 1216 {
+            rect.size.width += width
+            return rect
+        }
+        var shift = width/2
+        switch page {
+        case "bag" where widePockets:
+            switch index {
+            case 2..<7: shift = 0
+            case 12..<15: shift = width
+            case 15..<17: rect.size.width += width; shift = 0
+            case 17..<617: shift = width * (Double((index-17)/15 % 10)+0.5)/10
+            case 617..<1337: shift = width * (Double((index-617)/18 % 10)+0.5)/10
+            default: break
+            }
+        case "diy" where wideRecipes:
+            if rect.minY >= 244 && rect.minY < 948 {
+                if index == 521 { shift = width/2 }
+                else if (522..<788).contains(index) { shift = width }
+                else if (518..<521).contains(index) { shift = 0 }
+            }
+            if (516...517).contains(index) { shift = width }
+        case "map":
+            if rect.maxX <= 390 { shift = 0 }
+            if kind == "map" || (308..<321).contains(index) {
+                let scale = 1 + min(width/804,0.045)
+                // Terrain and grid labels share the same uniform transform.
+                rect.origin.x = 808 + (rect.minX-808)*scale + width/2
+                rect.origin.y = 204 + (rect.minY-204)*scale
+                rect.size.width *= scale
+                rect.size.height *= scale
+                return rect
+            }
+            if (322..<335).contains(index) { shift = width }
+        default: break
+        }
+        return rect.offsetBy(dx:shift,dy:0)
     }
     func source(_ node:EdenNode)->String {
         let d=node.data
@@ -233,15 +344,23 @@ struct EdenSurfaceLayout {
     let body:CGRect,footer:CGRect,content:CGRect,left:CGRect,right:CGRect
     let bodyScale:Double,navScale:Double
     let bodyOffset:CGPoint,navOffset:CGPoint
-    init(_ size:CGSize, controls:Bool=false) {
+    let extraWidth:Double
+    init(_ size:CGSize, controls:Bool=false, expand:Bool=false) {
         let shared=dm_companion_surface_make(size,controls ? 1:0)
         body=shared.body;footer=shared.footer;content=shared.content;left=shared.left;right=shared.right
-        bodyScale=shared.body_scale;bodyOffset=shared.body_offset
+        bodyScale=shared.body_scale
+        let extra = shared.body_scale > 0 ? max(0, shared.body.width / shared.body_scale - 1240) : 0
+        extraWidth = expand && !controls && extra >= 48 ? extra : 0
+        bodyOffset = CGPoint(x:shared.body_offset.x-extraWidth*bodyScale/2,y:shared.body_offset.y)
         navScale=shared.nav_scale;navOffset=shared.nav_offset
     }
     func point(_ p:CGPoint)->CGPoint {
         let nav=p.y>=footer.minY,s=nav ? navScale:bodyScale,o=nav ? navOffset:bodyOffset
         return CGPoint(x:(p.x-o.x)/s,y:(p.y-o.y)/s)
+    }
+    var bodyCoverRect:CGRect {
+        CGRect(x:(body.minX-bodyOffset.x)/bodyScale,y:(body.minY-bodyOffset.y)/bodyScale,
+               width:body.width/bodyScale,height:body.height/bodyScale)
     }
     func tapPoint(_ p:CGPoint)->CGPoint {
         var logical=point(p)
@@ -363,6 +482,9 @@ private func edenLabelKey(_ text:String,_ scale:Double,_ color:Any?)->String {
     @GestureState private var dragTouch=false
     @GestureState private var pinchTouch=false
     @State private var gestureActive=false
+    @State private var gestureController:Bool?
+    @State private var dragStarted=false
+    @State private var dragSequence=0
     private let manifest:EdenManifest
     init(model:CompanionModel,manifest:EdenManifest = .shared) {_model=ObservedObject(wrappedValue:model);self.manifest=manifest}
     private func labelLines(_ text:String,_ node:EdenNode)->[String] {
@@ -439,7 +561,13 @@ private func edenLabelKey(_ text:String,_ scale:Double,_ color:Any?)->String {
             }
             if movingSlot != nil {nodes.append(EdenNode(id:901030,data:["type":"label","text":companionText("Tap a destination slot"),"text_scale":4,"color":"#FF746144","align":"center"],rect:CGRect(x:620,y:947,width:0,height:0),clip:nil))}
         }
-        return nodes
+        return nodes.map { node in
+            var rect = node.rect
+            if node.coversBody { rect.size.width += f.extraWidth }
+            else if node.id >= 901000 && node.id != 901030 { rect.origin.x += f.extraWidth }
+            else { rect.origin.x += f.extraWidth/2 }
+            return EdenNode(id:node.id,data:node.data,rect:rect,clip:node.clip)
+        }
     }
     private func renderNodes(_ f:EdenFrame)->[EdenNode] {var a:[EdenNode]=[];for n in f.nodes {if n.kind=="map"{a.append(contentsOf:mapNodes(n,f))};a.append(n)};a+=extraNodes(f);return a}
     private func assetKeys(_ nodes:[EdenNode],_ f:EdenFrame)->Set<String> {
@@ -448,9 +576,11 @@ private func edenLabelKey(_ text:String,_ scale:Double,_ color:Any?)->String {
             if n.kind=="label" || n.kind=="value" {let s=(n.data["text_scale"] as? NSNumber)?.doubleValue ?? 4;for line in labelLines(f.text(n),n) where !line.isEmpty{keys.insert(edenLabelKey(line,s,n.data["color"]))}}
         };return keys
     }
-    private func draw(_ nodes:[EdenNode],_ f:EdenFrame,_ context:inout GraphicsContext) {
+    private func draw(_ nodes:[EdenNode],_ f:EdenFrame,_ context:inout GraphicsContext,bodyCover:(GraphicsContext,CGRect)?=nil) {
         for n in nodes {
-            var c=context;if let clip=n.clip{c.clip(to:Path(clip))};let d=n.data,r=n.rect
+            var c=context;var r=n.rect
+            if n.coversBody,let cover=bodyCover {c=cover.0;r=cover.1}
+            if let clip=n.clip{c.clip(to:Path(clip))};let d=n.data
             switch n.kind {
             case "image":if let im=images.get(f.source(n)){c.draw(Image(decorative:im,scale:1),in:r)}
             case "label","value":
@@ -532,28 +662,42 @@ private func edenLabelKey(_ text:String,_ scale:Double,_ color:Any?)->String {
         return result.reversed()
     }
     private func beginInteraction() {
-        if !gestureActive {gestureActive=true;model.uiActivity?(1,true)}
+        if !gestureActive {
+            gestureController = model.externalController
+            gestureActive=true
+            model.uiActivity?(1,true)
+        }
     }
     private func endInteraction() {
-        if gestureActive {gestureActive=false;model.uiActivity?(1,false)}
+        if gestureActive {
+            gestureController = nil
+            gestureActive=false
+            model.uiActivity?(1,false)
+        }
     }
     private var localOperation:Bool {movingSlot != nil || (local["@flag:theme_sheet"] ?? 0) != 0}
     var body:some View {
-        let f=EdenFrame(model:model,manifest:manifest,local:local),nodes=renderNodes(f)
-        let bodyNodes=nodes.filter{$0.rect.minY<960},navNodes=nodes.filter{$0.rect.minY>=960}
-        let keys=assetKeys(nodes,f)
         GeometryReader{geometry in
             #if os(iOS)
-            let layout=EdenSurfaceLayout(geometry.size,controls:!model.externalController)
+            let controller = gestureController ?? model.externalController
+            let layout=EdenSurfaceLayout(geometry.size,controls:!controller,expand:controller)
             #else
             let layout=EdenSurfaceLayout(geometry.size)
             #endif
+            let f=EdenFrame(model:model,manifest:manifest,local:local,extraWidth:layout.extraWidth)
+            let nodes=renderNodes(f)
+            let bodyNodes=nodes.filter{$0.rect.minY<960},navNodes=nodes.filter{$0.rect.minY>=960}
+            let keys=assetKeys(nodes,f)
             Canvas{context,_ in
                 // Bleed the original background to every edge; content retains its aspect.
                 if let background=bodyNodes.first(where:{$0.kind=="image" && $0.rect.width==1240 && $0.rect.height==1080}),let image=images.get(f.source(background)) {
                     context.draw(Image(decorative:image,scale:1),in:CGRect(origin:.zero,size:geometry.size))
                 }
-                var body=context;body.clip(to:Path(layout.content));body.translateBy(x:layout.bodyOffset.x,y:layout.bodyOffset.y);body.scaleBy(x:layout.bodyScale,y:layout.bodyScale);draw(bodyNodes,f,&body)
+                // Occupancy/menu scrims cover the complete physical body, under
+                // the separately hosted controls. Foreground cards keep their
+                // fitted centre transform and navigation remains accessible.
+                var cover=context;cover.clip(to:Path(layout.body));cover.translateBy(x:layout.bodyOffset.x,y:layout.bodyOffset.y);cover.scaleBy(x:layout.bodyScale,y:layout.bodyScale)
+                var body=context;body.clip(to:Path(layout.content));body.translateBy(x:layout.bodyOffset.x,y:layout.bodyOffset.y);body.scaleBy(x:layout.bodyScale,y:layout.bodyScale);draw(bodyNodes,f,&body,bodyCover:(cover,layout.bodyCoverRect))
                 var nav=context;nav.clip(to:Path(layout.footer));nav.translateBy(x:layout.navOffset.x,y:layout.navOffset.y);nav.scaleBy(x:layout.navScale,y:layout.navScale);draw(navNodes,f,&nav)
 
             }
@@ -562,12 +706,25 @@ private func edenLabelKey(_ text:String,_ scale:Double,_ color:Any?)->String {
             .gesture(DragGesture(minimumDistance:0).updating($dragTouch){_,active,_ in active=true}.onChanged{g in
                 beginInteraction()
                 let p=layout.point(g.location),start=layout.point(g.startLocation)
-                if dragging==nil {dragging=gestureHit(start,nodes,f);dragToken=dragging.map{model.pocketToken($0.payload)} ?? "";startPan=mapPan;if let scroll=f.scrolls.first(where:{EdenFrame.rectangle($0["rect"]).contains(start)}){startScroll=local["@scroll:"+(scroll["id"] as? String ?? "")] ?? 0}}
+                if !dragStarted {
+                    dragStarted = true
+                    dragSequence &+= 1
+                    dragging=gestureHit(start,nodes,f)
+                    dragToken=dragging.map{model.pocketToken($0.payload)} ?? ""
+                    startPan=mapPan
+                    if let scroll=f.scrolls.first(where:{f.scrollRect($0).contains(start)}),
+                       let id=scroll["id"] as? String {
+                        startScroll=min(EdenFrame.scrollLimit(scroll,f.bindings),
+                                        max(0,(local["@scroll:"+id] ?? 0)*f.scrollScale(id)))
+                    }
+                }
                 let distance=hypot(g.translation.width,g.translation.height)/layout.bodyScale
                 if distance>12,let dragging,dragging.draggable{dragPoint=p}
-                else if distance>12,let scroll=f.scrolls.first(where:{EdenFrame.rectangle($0["rect"]).contains(start)}) {
-                    let id=scroll["id"] as? String ?? "",r=EdenFrame.rectangle(scroll["rect"]),total=ceil(f.bindings.number(scroll["count_bind"] as? String ?? "")/max(1,f.bindings.value(scroll["cols"])))*f.bindings.value(scroll["row_h"])
-                    local["@scroll:"+id]=min(max(0,total-r.height),max(0,startScroll-(p.y-start.y)))
+                else if distance>12,let scroll=f.scrolls.first(where:{f.scrollRect($0).contains(start)}),
+                        let id=scroll["id"] as? String {
+                    let delta = g.translation.height / layout.bodyScale
+                    let offset = min(EdenFrame.scrollLimit(scroll,f.bindings),max(0,startScroll-delta))
+                    local["@scroll:"+id] = offset / f.scrollScale(id)
                 } else if distance>12,dragging?.kind=="map"{mapPan=clampedPan(CGSize(width:startPan.width+p.x-start.x,height:startPan.height+p.y-start.y),f)}
             }.onEnded{g in
                 let p=layout.point(g.location),distance=hypot(g.translation.width,g.translation.height)/layout.bodyScale
@@ -577,7 +734,8 @@ private func edenLabelKey(_ text:String,_ scale:Double,_ color:Any?)->String {
                         else {var data=target.data;data["on_tap"]=data["drop_action"];data["payload"]=String(source.payload);action(EdenNode(id:target.id,data:data,rect:target.rect,clip:target.clip),f)}
                     }
                 } else if distance<=12{tap(layout.tapPoint(g.location),nodes,f)}
-                dragging=nil;dragPoint = .zero;dragToken="";if !pinchTouch{endInteraction()}
+                clearDrag()
+                if !pinchTouch { endInteraction() }
             })
             .simultaneousGesture(MagnificationGesture().updating($pinchTouch){_,active,_ in active=true}.onChanged{v in beginInteraction();if f.page=="map" {mapZoom=min(3,max(1,pinchStart*v));mapPan=clampedPan(mapPan,f)}}.onEnded{_ in pinchStart=mapZoom})
             .accessibilityRepresentation {
@@ -585,16 +743,35 @@ private func edenLabelKey(_ text:String,_ scale:Double,_ color:Any?)->String {
                     Button(n.data["apple_label"] as? String ?? accessibilityLabel(n,f)){model.uiActivity?(1,true);action(n,f);model.uiActivity?(1,false)}.accessibilityIdentifier("duo."+(n.data["id"] as? String ?? n.action)+".\(n.payload)")
                 }
             }
+            .task(id:keys){images.request(keys,model)}
+            .onChange(of:model.presented){visible in
+                if visible { images.request(keys,model) }
+                else { images.suspend(); movingSlot=nil; clearDrag(); endInteraction(); model.uiActivity?(2,false) }
+            }
+            #if os(iOS)
+            .onReceive(NotificationCenter.default.publisher(for:UIApplication.didReceiveMemoryWarningNotification)){
+                _ in images.trim(); images.request(keys,model)
+            }
+            #endif
         }
-        .task(id:keys){images.request(keys,model)}
+        .onChange(of:dragTouch){active in
+            guard !active else { return }
+            let sequence = dragSequence
+            // Gesture state can reset before SwiftUI delivers the final drop.
+            DispatchQueue.main.async {
+                if dragSequence == sequence { clearDrag() }
+            }
+        }
         .onChange(of:dragTouch || pinchTouch){active in if !active{endInteraction()}}
         .onChange(of:localOperation){busy in model.uiActivity?(2,busy)}
-        .onChange(of:model.page){_ in movingSlot=nil;dragging=nil;dragPoint = .zero}
-        .onChange(of:model.presented){visible in if !visible {images.suspend();movingSlot=nil;dragging=nil;dragPoint = .zero;endInteraction();model.uiActivity?(2,false)}else{images.request(keys,model)}}
-        #if os(iOS)
-        .onReceive(NotificationCenter.default.publisher(for:UIApplication.didReceiveMemoryWarningNotification)){_ in images.trim();images.request(keys,model)}
-        #endif
-        .onDisappear{movingSlot=nil;dragging=nil;dragPoint = .zero;endInteraction();model.uiActivity?(2,false);model.action("bag_cancel",0)}
+        .onChange(of:model.page){_ in movingSlot=nil;clearDrag()}
+        .onDisappear{movingSlot=nil;clearDrag();endInteraction();model.uiActivity?(2,false);model.action("bag_cancel",0)}
+    }
+    private func clearDrag() {
+        dragStarted = false
+        dragging = nil
+        dragPoint = .zero
+        dragToken = ""
     }
     private func accessibilityLabel(_ n:EdenNode,_ f:EdenFrame)->String {
         if n.action.hasPrefix("tab."),let p=["tab.map":CompanionPage.map,"tab.bag":.bag,"tab.critters":.critters,"tab.diy":.diy,"tab.today":.today,"tab.phone":.phone][n.action]{return p.title}

@@ -76,6 +76,7 @@ static int sk_insert(int fd, int type, int flags) {
     pthread_mutex_unlock(&sk_lock); close(fd); return sk_error(EMFILE);
 }
 static sk_ref sk_get(int fd) {
+    dm_lan_wait_guest();
     sk_ref r = {.fd = -1};
     if (!dm_lan_enabled()) { sk_down(); return r; }
     pthread_mutex_lock(&sk_lock);
@@ -115,7 +116,7 @@ static int sk_copy_address(void *out, unsigned *size, const struct sockaddr_in *
     if (!out) return 0; if (!size) return sk_error(EFAULT);
     unsigned n = *size < sizeof *in ? *size : sizeof *in; memcpy(out, in, n); *size = sizeof *in; return 0;
 }
-static int sk_result(sk_ref r, int result) { int e = errno; close(r.fd); return result < 0 ? sk_error(e) : result; }
+static int sk_result(sk_ref r, int result) { int e = errno; close(r.fd); dm_lan_wait_guest(); return result < 0 ? sk_error(e) : result; }
 static int sk_autobind(sk_ref r) {
     struct sockaddr_in own = {0}; socklen_t n = sizeof own;
     if (getsockname(r.fd, (void *)&own, &n)) return -1;
@@ -272,7 +273,7 @@ long dm_sk_send(int fd, const void *buffer, uint64_t length, int flags, const vo
             return sk_result(r, -1);
         }
     }
-    close(r.fd); return result;
+    close(r.fd); dm_lan_wait_guest(); return result;
 }
 long dm_sk_recv(int fd, void *buffer, uint64_t length, int flags, void *address, unsigned *address_length) {
     if (getenv("DM_NET_TRACE")) LOG("lan socket: recv %d flags %#x length %llu address length %u", fd, flags, length, address_length ? *address_length : 0);
@@ -291,7 +292,7 @@ long dm_sk_recv(int fd, void *buffer, uint64_t length, int flags, void *address,
                 continue;
             }
             if (sk_copy_address(address, address_length, &a)) { close(r.fd); return -1; }
-            sk_record(0, result); close(r.fd); return result;
+            sk_record(0, result); close(r.fd); dm_lan_wait_guest(); return result;
         }
         if (errno == EINTR) continue;
         if ((errno == EAGAIN || errno == EWOULDBLOCK) && !(r.flags & SK_NONBLOCK) && !(flags & MSG_DONTWAIT)) {
@@ -341,7 +342,7 @@ int dm_sk_poll(void *fds, uint64_t count, int ms) {
         if (result || ms == 0 || sk_ms() >= deadline) break;
     }
     for (uint64_t i = 0; i < count; i++) if (refs[i].fd >= 0) close(refs[i].fd);
-    free(native); free(refs); return result < 0 ? sk_error(e) : result;
+    free(native); free(refs); dm_lan_wait_guest(); return result < 0 ? sk_error(e) : result;
 }
 int dm_sk_select(int nfds, uint64_t *read_set, uint64_t *write_set, uint64_t *except_set, const int64_t *tv) {
     if (nfds < 0 || nfds > SK_MAX || (tv && (tv[0] < 0 || tv[1] < 0 || tv[1] >= 1000000))) return sk_error(EINVAL);

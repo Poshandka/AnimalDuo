@@ -7,6 +7,7 @@ static int enabled = 1;
 static _Atomic int waiting;
 uint64_t now_ns(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec * 1000000000ull + t.tv_nsec; }
 int dm_lan_enabled(void) { return enabled; }
+void dm_lan_wait_guest(void) {}
 uint32_t dm_lan_ip(void) { return htonl(INADDR_LOOPBACK); }
 uint32_t dm_lan_mask(void) { return htonl(0xff000000); }
 int dm_lan_peer(uint32_t ip) { return ip == dm_lan_ip(); }

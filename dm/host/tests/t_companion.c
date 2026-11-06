@@ -119,6 +119,10 @@ int main(void) {
             CGFloat upper_extent=side?p.face_gap+p.face_r*1.25:dm_companion_pad_stick_extent(p,0);
             assert(CGRectGetMinY(dm_companion_pad_menu_hit(p,side))>=upper.y+upper_extent+5.99);
             assert(CGRectGetMaxY(dm_companion_pad_menu_hit(p,side))<=lower.y-extent-5.99);
+            CGFloat click_top=p.click[side].y-p.click_r*1.35;
+            CGFloat click_bottom=p.click[side].y+p.click_r*1.35;
+            assert(click_top>=lower.y+extent+5.99);
+            assert(CGRectGetMaxY(rail)-click_bottom>=fmin(24,rail.size.height*.06)-1e-7);
         }
     }
     assert(CGRectIsEmpty(dm_companion_screen_layout(CGRectMake(0,0,0,800),1,1).panel));

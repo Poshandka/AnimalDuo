@@ -1,0 +1,89 @@
+Animal Crossing phone app coverage and controls, 2026-11-03.
+Game 3.0.3; unsigned generic arm64 application 3.0.52; minimum iOS/iPadOS 26.
+
+The player reported incomplete DIY, Miles and My Designs backgrounds after
+adaptive scene expansion, old 2D controls instead of the desired 3D default,
+and companion busy scrims stopping at the fitted centre instead of covering
+the physical sides. A separate reported device crash remains unlocated.
+
+The registered main screen override now derives both axes from the authored
+scale: wide displays retain reference height, tall displays retain width.
+Retained current matrices are never used as the scale source. Inline keyboards
+share the guarded derivation and retain lower-edge docking only on taller
+screens. Native HID and gesture coordinates invert the expanded axis.
+
+The verified full-screen P_Tex_00/P_Base_00 and background panes extend fresh
+draw constants and active repeated UVs on the required axis, preserving pattern
+density. Exact names, reference dimensions, centred horizontal origin, a
+matching actual projection and fresh uniform dimensions are required. Local,
+partial, square, orthographic and already expanded constants are excluded.
+The circular transition retains its separate hierarchy guards and extends each
+outer curtain edge on wide targets while keeping the inner aperture boundary,
+authored pane transforms and UVs fixed. A copied-island entry reproduced the
+previous wide edge strips before this final correction.
+
+Companion full-body rectangular input-blocking scrims keep manifest paint
+order but use the physical body clip. Foreground cards retain their fitted
+content transform; the footer and native control views stay separate. Physical
+controller layout itself is not redesigned in this release. The 3D migration
+runs once when production controls are created for a full-layout profile:
+absent/old-2D preferences upgrade, previews do not consume migration, and
+explicit native-touch mode plus later layout choices remain available.
+
+The owned adapter runs 10,642 ARM64 checks. Native UIKit checks include 36
+mask pixel/input cases, 26,524 panel, 32,868 rail, 1,012 ordinary-phone, 560
+handoff, 1,248 geometry, 472 legacy-surface/migration, 126 folding/input and
+13 startup assertions. Six preview assertions replay historical module data
+and owned art in the current hierarchy. Empty synthetic fixtures are included;
+raw images, art and snapshots are not. Actual native simulator evidence from
+older releases remains historical; no new physical acceptance is inferred.
+
+Actual Mac gameplay uses a disposable island copy. Three phone apps and the
+design editor are captured at stock, tall (678/466) and wide (874/402) aspects.
+The wide clock/date/minimap/NookPhone are visible. Twenty additional cycles
+open and close the three apps 60 times and return to free play without an
+observed crash. Final post-close footprint samples range 1959.3..1963.9 MiB;
+small residual drift remains and no long-session plateau is established; this is finite sampling, not hours-long acceptance
+or a performance gain. Original save fingerprints remain identical and cloud
+storage is disabled. Raw captures are before native presentation, not phone
+screenshots or a direct-drawing acceptance test.
+
+Host, Metal, ThreadSanitizer, Python and documentation/environment validation,
+Release iOS build, module-byte verification and full local game regression are
+recorded in the matching validation folder. The regression compares 9,766
+shaders/interfaces and startup routes; busy flags and finite frame/memory
+observations are retained. No speedup is inferred from that comparison.
+
+Read-only diagnostics have not correlated the player's reported crash with a
+matching system/process report. Available Duo logs end in normal background
+handling without a host crash marker; older resource reports do not identify
+this incident. The connected iPad runs an older app, and the ordinary phone's
+developer disk mount failed. Exact device/time/preceding operation remain
+needed. This release does not claim to fix that incident, the prior room-load
+stall, frame-time spikes or reverse-wide cross-fold absolute heading.
+
+Build using Xcode, GAME=01006F8002326000 and user-owned matching NSOs, dialogue-
+ready RomFS, DLC, fonts and offline shaders. Follow repository instructions or
+adapt build_ios.py paths; generate via build_ipa.sh --prepare-xcode and build
+Release generic/platform=iOS with CURRENT_PROJECT_VERSION=3.0.52, signing off.
+The update replaces DmIOS, Info.plist and matching main.cuts/main.gates from
+3.0.51. New guest instructions are embedded in DmIOS. Other modules and the
+persistent resource descriptor used since 3.0.42 stay compatible. Overwrite
+the same app using the same identity and retain its container/resources.
+No signing/installing on user devices or save/cloud mutation is performed.
+
+Owned validation is in validation/phone-app-panels. Generate ui/project.yml
+with xcodegen and build PhoneDuoUI for Mac Catalyst. run_ui_all.py keeps native
+GUI checks sequential. Preview replay needs separately supplied user-owned
+historical data/art. Run game regression after GUI work and heavy builds.
+Module verification checks the current assembled source against the rewritten
+main, embedded executable bytes and every packaged module metadata table.
+Concurrent-touch tests accept only coherent complete coordinate transforms;
+the first run exposed an old width-preservation expectation and was corrected.
+
+This archive is complete matching GPL corresponding source with NHSE source,
+component licenses, source backups and a cumulative patch, without a dependency
+on another source ZIP. CRC, source manifest and reverse-patch checks accompany
+it. Game binaries/resources/captures, decoded art, saves, keys, raw device/game
+logs and device identifiers are excluded. The real Git index remains unchanged;
+no commit or push is made.

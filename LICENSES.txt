@@ -1,6 +1,11 @@
+AnimalDuo 1.1 public source / application build 3.0.59.
+Original component licenses and historical modification notices follow.
+
 Animal Crossing iPhone/iPad portrait Duo, 2026-11-01.
 Complete corresponding source: AnimalCrossing-iPhone-Duo-source.zip.
-The matching unmodified NHSE template source is also included in that archive.
+The public source snapshot excludes generated templates and the nested NHSE archive.
+Pinned optional NHSE source: https://github.com/kwsch/NHSE/tree/cb07454
+Preserve complete corresponding source when distributing template-containing builds.
 
 Eden Duo companion integration for nxnative
 
@@ -1883,4 +1888,4 @@ Inner-display direction redesign, 2026-11-02. Corresponding source: AnimalCrossi
 
 Stable display and persistent-resource installer, 2026-11-02. Corresponding source: AnimalCrossing-iPad-iPhone-Stable-Resources-source.zip. Full and thin device packages share that executable and source.
 
-Larger persistent portrait companion controls, 2026-11-03. Corresponding source: AnimalCrossing-iPad-iPhone-Panel-Controls-source.zip. Modified Eden Duo components retain GPL-3.0-or-later notices.
+Adaptive phone app composition and full companion body scrims, 2026-11-03. Corresponding source: AnimalCrossing-iPad-iPhone-Phone-Apps-source.zip. Modified Eden Duo components retain GPL-3.0-or-later notices.

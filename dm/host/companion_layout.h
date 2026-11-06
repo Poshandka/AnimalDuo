@@ -60,7 +60,7 @@ static inline dm_companion_layout dm_companion_screen_layout(CGRect safe, int po
     }
     return r;
 }
-// Expanded folding-phone windows split the entire canvas equally. Foreground
+// Tablets and expanded folding-phone windows split the canvas equally. Foreground
 // controls stay inside each asymmetric safe edge; backgrounds reach the edge.
 static inline dm_companion_layout dm_companion_fold_layout(CGRect bounds,CGRect safe,int split,int touch) {
     dm_companion_layout r={0};r.game=bounds;
@@ -142,13 +142,16 @@ static inline dm_companion_pad_layout dm_companion_pad_geometry_regions(CGSize s
     CGFloat face_extent=42+1.25*(24+2*compact),menu_half=18+6*compact+8;
     fit=fmin(fit,(h*.18-28)/face_extent);
     fit=fmin(fit,(h*.18-6)/(face_extent+menu_half));
+    // Raise the stick-click row away from navigation while retaining a gap
+    // above its complete hit discs and below the lower stick's grab region.
+    fit=fmin(fit,(h*.13-6)/(46*1.4+1.35*(17+5*compact)));
     p.unit=fmax(0,fmin(fit,scale*fmin(1.08,fmin(rail/(175.0-31*compact),h/550.0))));
     p.left=left;p.right=right;
     p.stick=CGPointMake(CGRectGetMidX(left),left.origin.y+h*.36);p.face=CGPointMake(CGRectGetMidX(right),right.origin.y+h*.36);
     p.dpad=CGPointMake(CGRectGetMidX(left),left.origin.y+h*.72);p.right_stick=CGPointMake(CGRectGetMidX(right),right.origin.y+h*.72);
     p.shoulder[0]=CGPointMake(left.origin.x+left.size.width*(.29-.03*compact),left.origin.y+42*p.unit);p.shoulder[1]=CGPointMake(left.origin.x+left.size.width*(.71+.03*compact),left.origin.y+42*p.unit);
     p.shoulder[2]=CGPointMake(CGRectGetMaxX(right)-right.size.width*(.29-.03*compact),right.origin.y+42*p.unit);p.shoulder[3]=CGPointMake(CGRectGetMaxX(right)-right.size.width*(.71+.03*compact),right.origin.y+42*p.unit);
-    p.click[0]=CGPointMake(CGRectGetMidX(left),left.origin.y+h*.91);p.click[1]=CGPointMake(CGRectGetMidX(right),right.origin.y+h*.91);
+    p.click[0]=CGPointMake(CGRectGetMidX(left),left.origin.y+h*.85);p.click[1]=CGPointMake(CGRectGetMidX(right),right.origin.y+h*.85);
     p.swap=CGPointMake(CGRectGetMidX(left),left.origin.y+h*.18);
     p.face_gap=42*p.unit;p.face_r=(24+2*compact)*p.unit;p.stick_r=50*p.unit;p.right_r=46*p.unit;p.dpad_r=43*p.unit;
     p.shoulder_r=24*p.unit;p.click_r=(17+5*compact)*p.unit;p.swap_r=(15+5*compact)*p.unit;p.knob_r=30*p.unit;

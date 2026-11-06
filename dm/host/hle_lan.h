@@ -44,6 +44,14 @@ _Static_assert(sizeof(dm_ldn_filter) == 0x60, "LDN ScanFilter");
 _Static_assert(sizeof(dm_ldn_config) == 0x20, "LDN NetworkConfig");
 
 enum { DM_LDN_NONE, DM_LDN_INIT, DM_LDN_AP, DM_LDN_HOST, DM_LDN_STATION, DM_LDN_CONNECTED, DM_LDN_ERROR };
+// Native presentation only; this is separate from the Horizon LDN ABI above.
+enum { DM_LAN_WAIT_NONE, DM_LAN_WAIT_PREPARING, DM_LAN_WAIT_PAUSED,
+       DM_LAN_WAIT_RESUMING, DM_LAN_WAIT_ENDED };
+typedef struct { int state, seconds, supported, local_background, settling; } dm_lan_wait_info;
+int dm_lan_background(int background); // Scene background/foreground, not a temporary loss of focus.
+void dm_lan_wait_snapshot(dm_lan_wait_info *out);
+void dm_lan_wait_cancel(void);
+void dm_lan_wait_guest(void);           // Guest data sockets pause; the native control plane stays alive.
 enum { DM_LDN_BAD_STATE = (32 << 9) | 203, DM_LDN_BAD_ARGUMENT = (96 << 9) | 203,
        DM_LDN_NOT_FOUND = (48 << 9) | 203, DM_LDN_CONNECT_FAILED = (64 << 9) | 203 };
 

@@ -26,6 +26,7 @@
 #include "control_presentation.h"
 #include "game_profile.h"
 #include "haptics_apple.h"
+int front_native_keyboard_controls_hidden(unsigned context);
 
 enum { B_A = 0, B_B, B_X, B_Y, B_LS, B_RS, B_L, B_R, B_ZL, B_ZR, B_PLUS, B_MINUS, B_LEFT, B_UP, B_RIGHT, B_DOWN, B_N };
 enum { C_NONE = 0, C_STICK, C_DPAD, C_FACE, C_BTN, C_SWAP, C_GAME };   // which control a touch holds; C_GAME: none, the touch goes to the game's touch screen (finger slot << 8)
@@ -95,6 +96,12 @@ static const CGFloat
     K_CLICK_X = 102, K_CLICK_R = 17;                // L3 / R3: centre from the outer edge (level with ZL / ZR), radius
 static const int k_btns[] = {B_ZL, B_L, B_ZR, B_R, B_MINUS, B_PLUS, B_LS, B_RS};   // keys locked at touch-down (L3 / R3 only in the 3D layout)
 static NSString *const k_layout_key = @"DmPadLayout";   // NSUserDefaults: 0 = 2D, 1 = 3D, 2 = Tap (DM_GAME_PAD_LAYOUT's numbers)
+static void migrate_full_layout_defaults(NSUserDefaults *defaults) {
+    if(DM_GAME_PAD_LAYOUT!=1 || [defaults boolForKey:@"DmPadFullDefaultV1"])return;
+    NSNumber *saved=[defaults objectForKey:k_layout_key];
+    if(!saved || saved.integerValue==0)[defaults setInteger:1 forKey:k_layout_key];
+    [defaults setBool:YES forKey:@"DmPadFullDefaultV1"];
+}
 int dm_opmode(void);   // hle_oe.c: 0 = handheld
 
 @interface DmGamepad : UIView
@@ -182,6 +189,7 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }   
             if (names[b]) _label[b] = label(_key[b], names[b]);   // the D-pad arms carry no label
         }
         _swap = shape(_controls); _swapLabel = label(_swap, @"");
+        if(!preview)migrate_full_layout_defaults(NSUserDefaults.standardUserDefaults);
         NSNumber *saved = [NSUserDefaults.standardUserDefaults objectForKey:k_layout_key];
         int l = saved ? (int)saved.integerValue : DM_GAME_PAD_LAYOUT;
         if (l == 2 && dm_opmode() != 0) l = 0;   // Tap only in handheld mode (env.txt's DM_OPMODE may have changed it)
@@ -248,9 +256,9 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }   
 - (BOOL)pointInside:(CGPoint)point withEvent:(UIEvent *)event {
     if(_suppressed || _padOff || !CGRectContainsPoint(self.bounds,point))return NO;
     if(_sideControls){dm_companion_pad_layout p=self.sideGeometry;if(!CGRectContainsPoint(p.left,point)&&!CGRectContainsPoint(p.right,point))return NO;}
-    // Keyboard lifetime owns the game canvas. Drawing only owns it while the
+    // Active keyboard editing owns the game canvas. Drawing only owns it while the
     // pad is suppressed; restored artwork must also restore its hit regions.
-    if(!_previewMode && _nativeSurface && !_sideControls && (dm_view_touch_context()&1))return NO;
+    if(!_previewMode && _nativeSurface && !_sideControls && front_native_keyboard_controls_hidden(dm_view_touch_context()))return NO;
     if(!_nativeSurface && !_sideControls)return [super pointInside:point withEvent:event];
     if(_fade.mode==2)return NO;
     if([self inSwap:point])return YES;

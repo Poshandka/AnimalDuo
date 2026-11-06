@@ -71,6 +71,20 @@ import Foundation
         assert(changed.hit(CGPoint(x:42,y:5))?.payload==1 && initial.hit(CGPoint(x:1,y:5))?.payload==0)
         snapshot["total"] = -1;model.poll()
         assert(EdenFrame(model:model,manifest:changingManifest,local:[:]).nodes.isEmpty)
+        let bodyMask:[String:Any] = ["type":"rect","input_block":true,"bg":"#B03A2B18"]
+        for height in [960.0,964.0,968.0] {
+            assert(EdenNode(id:0,data:bodyMask,rect:CGRect(x:0,y:0,width:1240,height:height),clip:nil).coversBody)
+        }
+        for rect in [CGRect(x:1,y:0,width:1240,height:968),CGRect(x:0,y:1,width:1240,height:968),
+                     CGRect(x:0,y:0,width:1239,height:968),CGRect(x:0,y:0,width:1240,height:959),
+                     CGRect(x:0,y:0,width:1240,height:1080)] {
+            assert(!EdenNode(id:0,data:bodyMask,rect:rect,clip:nil).coversBody)
+        }
+        let fullBody=CGRect(x:0,y:0,width:1240,height:968)
+        for data:[String:Any] in [["type":"image","input_block":true],["type":"rect"],["type":"rect","input_block":false]] {
+            assert(!EdenNode(id:0,data:data,rect:fullBody,clip:nil).coversBody)
+        }
+        assert(!EdenNode(id:0,data:bodyMask,rect:fullBody,clip:fullBody).coversBody)
         for size in [CGSize(width:834,height:690),CGSize(width:1024,height:750),CGSize(width:500,height:420),CGSize(width:393,height:538),CGSize(width:402,height:552),CGSize(width:430,height:597)] {
             let l=EdenSurfaceLayout(size);assert(l.body.width==size.width && l.footer.maxY==size.height)
             assert(l.footer.width==size.width && !l.body.intersects(l.footer))
@@ -95,6 +109,16 @@ import Foundation
             assert(abs(itemBack.x-item.x)<0.00001 && abs(itemBack.y-item.y)<0.00001)
             let oldScale=min(size.width/1240,l.body.height/968)
             assert(abs(l.bodyScale-oldScale)<0.00001) // Desktop/full-content layout is retained.
+            for layout in [l,reserved] {
+                let cover=layout.bodyCoverRect
+                let physical=CGRect(x:layout.bodyOffset.x+cover.minX*layout.bodyScale,
+                                    y:layout.bodyOffset.y+cover.minY*layout.bodyScale,
+                                    width:cover.width*layout.bodyScale,height:cover.height*layout.bodyScale)
+                assert(abs(physical.minX-layout.body.minX)<0.00001 && abs(physical.minY-layout.body.minY)<0.00001)
+                assert(abs(physical.maxX-layout.body.maxX)<0.00001 && abs(physical.maxY-layout.body.maxY)<0.00001)
+                assert(physical.maxY<=layout.footer.minY+0.00001)
+                assert(cover.width>=1240-0.00001 && cover.height>=968-0.00001)
+            }
         }
         let scrollManifest=EdenManifest(data:try! JSONSerialization.data(withJSONObject:["pages":[["id":"diy","scrolls":[["id":"diy","rect":[0,0,200,100],"show_bind":"unblocked","count_bind":"count","row_h":80,"cols":2,"bar_w":12,"bar":"#FF112233","bar_track":"#FF445566"]],"widgets":[["type":"rect","rect":[0,0,40,40],"scroll":"diy","on_tap":"recipe"],["type":"rect","rect":[0,0,200,100],"input_block":true,"on_tap":"overlay"]]]]]))
         snapshot=["acnh.ready":1,"count":50,"unblocked":1];model.select(.diy)

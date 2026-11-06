@@ -3,7 +3,7 @@
 The screen before the game starts shows the settings the game supports. Tap **Play** to start; the app remembers your choices for the next start. All settings are on one scrollable screen, under **Game**, **Controls** and **Performance**. Tap a menu or move a slider there; no settings page needs opening. **Upscaling** is in **Game**, beside **Console mode**.
 
 - [Tested defaults](#tested-defaults)
-- [Game](#game): [Frame rate](#frame-rate), [Render scale](#render-scale), [Console mode](#console-mode), [Upscaling](#upscaling), [Game language](#game-language), [Frame-rate counter](#frame-rate-counter), [Local multiplayer](#local-multiplayer)
+- [Game](#game): [Frame rate](#frame-rate), [Render scale](#render-scale), [Console mode](#console-mode), [Upscaling](#upscaling), [Game language](#game-language), [Frame-rate counter](#frame-rate-counter), [Local multiplayer](#local-multiplayer), [Local-play wait limit](#local-play-wait-limit)
 - [Controls](#controls): [Touch feedback](#touch-feedback), [Game rumble](#game-rumble), [Rumble strength](#rumble-strength)
 - [Performance](#performance): [Frame buffering](#frame-buffering), [Metal 4 pipelines](#metal-4-pipelines), [Pipeline prebuild](#pipeline-prebuild), [Encode thread](#encode-thread), [Hold frames when late](#hold-frames-when-late), [Performance HUD](#performance-hud), [Reset to tested defaults](#reset-to-tested-defaults)
 - [Settings in a file](#settings-in-a-file)
@@ -68,6 +68,14 @@ Shows the frames per second at the top left.
 ### Local multiplayer
 
 Connect compatible native ports on the same local network using the game's local play menu. Every participant needs a build with this transport and the same game version. Allow **Local Network** access when iOS asks. Internet play and Nintendo Switch radio sessions are unavailable. This feature is opt-in (`DM_LDN=1` on Mac); individual games still need gameplay validation.
+
+### Local-play wait limit
+
+The host chooses **30 seconds** (default) or **60 seconds** before starting the game. On Mac, set `DM_LDN_WAIT_SECONDS=60` for the longer limit. This setting applies when hosting; a visitor follows the host's limit.
+
+If every member supports coordinated waiting, briefly backgrounding an iPhone/iPad pauses the whole room. The foreground players see a countdown and can end the visit. Returning before the deadline resumes only after all players are ready. A second absence during the same pause does not restart its countdown. A minimized Mac also requests a pause; ordinary Mac focus changes do not.
+
+Every participant must update to a build that supports this feature. Older compatible native ports can still join ordinary local play, but disable coordinated waiting for that room. This accommodates short iOS suspension; it cannot keep the game alive indefinitely. Force quitting, a broken connection or system termination can end the session before the selected limit. Once waiting ends, return to the game's airport and visit again; the app does not reconstruct the previous visit or modify saves to restore it. See the [implementation and validation](reference/services.md#coordinated-waiting-during-local-play-backgrounding).
 
 ## Controls
 

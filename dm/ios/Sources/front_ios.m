@@ -15,12 +15,34 @@
 #include "companion_layout.h"
 #include "control_presentation.h"
 #include "present_layout.h"
+#include "hle_lan.h"
+#import "lan_wait_text_apple.h"
 #include "DisplayOrientation.h"
 #include <stdatomic.h>
 #import "companion_apple.h"
 void *dm_companion_view_controller(void);
 void dm_companion_ui_state(int hidden,int physical,int presented);
 static _Atomic int g_phone_canvas,g_display_policy_known;
+static void front_ios_lan_audio(int paused);
+static UIBackgroundTaskIdentifier g_lan_task;
+static BOOL g_lan_task_active;
+static unsigned g_lan_task_epoch;
+static void front_lan_task_end(void) {
+    if (!g_lan_task_active) return;
+    UIBackgroundTaskIdentifier task = g_lan_task; g_lan_task = UIBackgroundTaskInvalid; g_lan_task_active = NO; g_lan_task_epoch++;
+    [UIApplication.sharedApplication endBackgroundTask:task];
+}
+static void front_lan_task_prepare(void) {
+    dm_lan_wait_info info; dm_lan_wait_snapshot(&info);
+    if (!info.supported || g_lan_task_active) return;
+    // Finish the pause notification/acknowledgement only. The 30/60 second room
+    // reservation does not require the app to execute continuously in background.
+    g_lan_task = [UIApplication.sharedApplication beginBackgroundTaskWithName:@"Finish local-play pause" expirationHandler:^{front_lan_task_end();}];
+    g_lan_task_active = g_lan_task != UIBackgroundTaskInvalid;
+    if (!g_lan_task_active) return;
+    unsigned epoch = ++g_lan_task_epoch;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 5*NSEC_PER_SEC), dispatch_get_main_queue(), ^{if (epoch == g_lan_task_epoch) front_lan_task_end();});
+}
 int front_controls_full_canvas(void) {
     // UIKit can query the launch policy before a root view or hinge observation
     // exists. Expanded Duo scenes subsequently publish their native policy.
@@ -125,6 +147,7 @@ static void front_loading_top(void);
 
 @interface DmRootVC : UIViewController {
     dm_game_touch_controls _gameTouchState;uint64_t _gameTouchEpoch;
+    dm_keyboard_controls _keyboardControls;
 }
 @property (nonatomic, strong) DmGameView *game;
 @property (nonatomic, strong) UIView *canvas;
@@ -142,6 +165,13 @@ static void front_loading_top(void);
 @property (nonatomic) BOOL canvasInverted;
 @property (nonatomic) NSInteger canvasQuarterTurns;
 @property (nonatomic,strong) UIButton *visibilityButton;
+@property (nonatomic,strong) UIView *lanWaitOverlay;
+@property (nonatomic,strong) UILabel *lanWaitTitle,*lanWaitDetail;
+@property (nonatomic,strong) UIButton *lanWaitButton;
+@property (nonatomic,strong) NSTimer *lanWaitTimer;
+@property (nonatomic) BOOL lanWaitDismissed;
+- (void)updateLocalPlayWait;
+- (void)scheduleLocalPlayPoll:(NSTimeInterval)seconds;
 - (void)refreshCompanionControls;
 - (void)companionActivity:(unsigned)source busy:(BOOL)busy;
 - (void)gameTouchActivity:(BOOL)active;
@@ -162,12 +192,14 @@ static void front_loading_top(void);
 - (BOOL)isStandardPhone;
 - (BOOL)phoneHardware;
 - (BOOL)usesAdaptiveCanvas;
+- (NSString *)imageModePreferenceKey;
 @end
 static DmRootVC *g_root;
 BOOL dm_canvas_half_turn(UIViewController *owner) {return [owner isKindOfClass:DmRootVC.class] && ((DmRootVC *)owner).canvasInverted;}
 CGFloat dm_canvas_rotation(UIViewController *owner) {return [owner isKindOfClass:DmRootVC.class]?((DmRootVC *)owner).canvasQuarterTurns*M_PI_2:0;}
 static void front_native_touch_activity(int active) { [g_root gameTouchActivity:active!=0]; }
 void front_native_ui_context(unsigned context) { [g_root nativeUIContext:context];front_startup_tick(); }
+int front_native_keyboard_controls_hidden(unsigned context) { [g_root nativeUIContext:context];return g_root.nativeKeyboardActive; }
 void front_ios_geometry_changed(void) {
     [g_root.game cancelNativeTouches];dm_gamepad_reset();[g_root.view setNeedsLayout];
 }
@@ -246,6 +278,8 @@ static void front_controls_defaults(void) {
     [self.view setNeedsLayout]; [self.view layoutIfNeeded];
     UIApplication.sharedApplication.idleTimerDisabled = YES;
     front_startup_begin();front_ios_boot();
+    [self scheduleLocalPlayPoll:1];
+    [self updateLocalPlayWait];
 }
 - (BOOL)physicalController {
     for(GCController *c in GCController.controllers)if(c.extendedGamepad)return YES;
@@ -263,7 +297,11 @@ static void front_controls_defaults(void) {
     // first hinge observation. That environment must retain the inner layout.
     return !(self.traitCollection.horizontalSizeClass==UIUserInterfaceSizeClassRegular && self.traitCollection.verticalSizeClass==UIUserInterfaceSizeClassRegular);
 }
-- (BOOL)usesAdaptiveCanvas { return self.foldingDevice || self.phoneHardware; }
+- (BOOL)usesAdaptiveCanvas { return self.foldingDevice || self.phoneHardware || UIDevice.currentDevice.userInterfaceIdiom==UIUserInterfaceIdiomPad; }
+- (NSString *)imageModePreferenceKey {
+    if(!self.phoneHardware && !self.foldingDevice && UIDevice.currentDevice.userInterfaceIdiom==UIUserInterfaceIdiomPad)return @"DmPadImageMode";
+    return self.isStandardPhone?@"DmPhoneImageMode":@"DmFoldImageMode";
+}
 - (UIScreen *)activeDisplay { return self.view.window.windowScene.screen; }
 - (void)displayTraitsChanged { [self updateOrientation:NO];[self.view setNeedsLayout]; }
 - (void)hingeUnavailable {
@@ -324,7 +362,7 @@ static void front_controls_defaults(void) {
     [actions addObject:[UIMenu menuWithTitle:tr(@"Layout") children:layouts]];
     if(self.usesAdaptiveCanvas){
         NSArray *labels=@[tr(@"Expand game view"),tr(@"Fit entire image")];NSArray *values=@[@(DM_PRESENT_EXPAND),@(DM_PRESENT_FIT)];NSMutableArray *framing=[NSMutableArray new];
-        NSString *key=self.isStandardPhone?@"DmPhoneImageMode":@"DmFoldImageMode";
+        NSString *key=self.imageModePreferenceKey;
         NSNumber *saved=[NSUserDefaults.standardUserDefaults objectForKey:key];NSInteger selected=saved && saved.intValue==DM_PRESENT_FIT?DM_PRESENT_FIT:DM_PRESENT_EXPAND;
         for(int i=0;i<2;i++){
             NSInteger value=[values[i]integerValue];
@@ -345,7 +383,7 @@ static void front_controls_defaults(void) {
     BOOL physical=self.physicalController,presented=portrait && active;
     int mode=(int)[NSUserDefaults.standardUserDefaults integerForKey:@"DmPadVisibility"];
     BOOL hidden=portrait ? dm_companion_control_hidden(presented,physical,mode) : (!active || physical);
-    // Keyboard lifetime owns landscape visibility. Portrait controls are on the
+    // The keyboard editing phase owns landscape visibility. Portrait controls are on the
     // companion, so typing on the upper game never suppresses those controls.
     if(!portrait)hidden|=self.nativeKeyboardActive || dm_game_touch_hidden(&_gameTouchState,mode,CACurrentMediaTime());
     if(hidden!=self.pad.hidden || hidden!=!self.pad.userInteractionEnabled){
@@ -356,10 +394,11 @@ static void front_controls_defaults(void) {
     if(self.companion)dm_companion_ui_state(hidden,physical,presented);
 }
 - (void)nativeUIContext:(unsigned)context {
-    BOOL keyboard=(context&1)!=0;
+    BOOL keyboard=dm_keyboard_controls_context(&_keyboardControls,context);
+    BOOL dialogChanged=((self.nativeContext^context)&8)!=0;
     BOOL drawingOpened=(context&2) && !(self.nativeContext&2),drawingClosed=!(context&2) && (self.nativeContext&2);
     self.nativeContext=context;
-    if(self.nativeKeyboardActive==keyboard && !drawingOpened && !drawingClosed)return;
+    if(self.nativeKeyboardActive==keyboard && !drawingOpened && !drawingClosed && !dialogChanged)return;
     self.nativeKeyboardActive=keyboard;_gameTouchState=(dm_game_touch_controls){0};++_gameTouchEpoch;
     if(drawingOpened && !keyboard){_gameTouchState.resume_at=CACurrentMediaTime()+1.1;[self queueGameTouchRestoration];}
     if(drawingClosed && !keyboard)[self.game cancelNativeTouches];
@@ -372,8 +411,10 @@ static void front_controls_defaults(void) {
     });
 }
 - (void)gameTouchActivity:(BOOL)active {
-    [self nativeUIContext:dm_view_touch_context()];
-    if(self.nativeKeyboardActive)return;
+    unsigned context=dm_view_touch_context();
+    dm_keyboard_controls_touch(&_keyboardControls,context,active);
+    [self nativeUIContext:context];
+    if(self.nativeKeyboardActive || (self.nativeContext&8) || _keyboardControls.submitted)return;
     double now=CACurrentMediaTime();
     if(!dm_game_touch_activity(&_gameTouchState,active,now))return;
     ++_gameTouchEpoch;[self refreshCompanionControls];
@@ -440,7 +481,7 @@ static void front_controls_defaults(void) {
     self.game.frame = CGRectMake(floor((b.size.width - w) / 2), floor((b.size.height - h) / 2), w, h);
     BOOL adaptive=self.usesAdaptiveCanvas;
     if(adaptive)self.game.frame=b;
-    NSString *framingKey=self.isStandardPhone?@"DmPhoneImageMode":@"DmFoldImageMode";
+    NSString *framingKey=self.imageModePreferenceKey;
     NSNumber *saved=[NSUserDefaults.standardUserDefaults objectForKey:framingKey];
     int framing=adaptive && !(saved && saved.intValue==DM_PRESENT_FIT)?DM_PRESENT_EXPAND:DM_PRESENT_FIT;
     atomic_store(&g_present_mode,framing);
@@ -476,6 +517,8 @@ static void front_controls_defaults(void) {
         self.fps.frame = CGRectMake(floor(CGRectGetMinX(s) + 130 * u), floor(CGRectGetMinY(s) + 22 * u - 11), 64, 22);
         if(self.companion)self.fps.frame=CGRectMake(CGRectGetMaxX(self.game.frame)-70,CGRectGetMinY(self.game.frame)+6,64,22);
     }
+    self.lanWaitOverlay.frame = self.canvas.bounds;
+    if (self.lanWaitOverlay && !self.lanWaitOverlay.hidden) [self.canvas bringSubviewToFront:self.lanWaitOverlay];
 }
 - (void)viewDidAppear:(BOOL)a {
     [super viewDidAppear:a];
@@ -491,6 +534,7 @@ static void front_controls_defaults(void) {
 - (UIRectEdge)preferredScreenEdgesDeferringSystemGestures { return UIRectEdgeAll; }   // Edge gestures need two swipes, to avoid accidental exits
 - (BOOL)prefersStatusBarHidden { return YES; }
 - (UIInterfaceOrientationMask)supportedInterfaceOrientations { return front_ios_orientation_mask(); }
+#include "LocalMultiplayerUI.inc"
 @end
 UIViewController *front_ios_root(void) { return [DmRootVC new]; }
 
@@ -644,8 +688,12 @@ void front_ios_audio_session(void) {
 // Real audio output is suspended (the silent sink paces the game) while the app is in the background or another audio session has interrupted ours (Siri, an alarm, a call).
 // Without the interruption observer the AudioUnits stayed "started" while iOS no longer called them, and a game waiting for its buffers back lost its sound until restart.
 // All of this runs on the main queue, like the scene callbacks
-static int g_audio_bg, g_audio_intr;
-static void front_ios_audio_apply(void) { dm_audio_suspend(g_audio_bg || g_audio_intr); }
+static int g_audio_bg, g_audio_intr, g_audio_lan;
+static void front_ios_audio_apply(void) { dm_audio_suspend(g_audio_bg || g_audio_intr || g_audio_lan); }
+static void front_ios_lan_audio(int paused) {
+    if (g_audio_lan == !!paused) return;
+    g_audio_lan = !!paused; front_ios_audio_apply();
+}
 static void front_ios_audio_watch(void) {
     NSNotificationCenter *nc = NSNotificationCenter.defaultCenter;
     [nc addObserverForName:AVAudioSessionInterruptionNotification object:nil queue:NSOperationQueue.mainQueue usingBlock:^(NSNotification *n) {
@@ -668,11 +716,12 @@ static void front_ios_audio_watch(void) {
 void front_ios_focus_event(int ev) {
     if (!g_layer) return;
     switch (ev) {
-        case 0: [g_root.game cancelNativeTouches]; [g_root companionActivity:DM_UI_TOUCH busy:NO]; [g_root refreshCompanionControls]; [DMCompanion.shared action:@"bag_cancel" argument:0]; [DMCompanion.shared setVisible:NO]; dm_gamepad_reset(); dm_focus_set(2); break;
-        case 1: UIApplication.sharedApplication.idleTimerDisabled = NO; dm_focus_set(3); g_audio_bg = 1; front_ios_audio_apply(); guest_clock_freeze_for(1, 1); dm_gfx_suspend(1); break;
-        case 2: dm_gfx_suspend(0); guest_clock_freeze_for(1, 0); front_ios_audio_session(); g_audio_bg = 0; front_ios_audio_apply(); dm_focus_set(2); break;
+        case 0: front_lan_task_prepare(); [g_root.game cancelNativeTouches]; [g_root companionActivity:DM_UI_TOUCH busy:NO]; [g_root refreshCompanionControls]; [DMCompanion.shared action:@"bag_cancel" argument:0]; [DMCompanion.shared setVisible:NO]; dm_gamepad_reset(); dm_focus_set(2); break;
+        case 1: front_lan_task_prepare(); dm_lan_background(1); UIApplication.sharedApplication.idleTimerDisabled = NO; dm_focus_set(3); g_audio_bg = 1; front_ios_audio_apply(); guest_clock_freeze_for(1, 1); dm_gfx_suspend(1); break;
+        case 2: dm_lan_background(0); front_lan_task_end(); dm_gfx_suspend(0); guest_clock_freeze_for(1, 0); front_ios_audio_session(); g_audio_bg = 0; front_ios_audio_apply(); dm_focus_set(2); [g_root updateLocalPlayWait]; break;
         case 3:   // Becoming active again also ends an interruption whose "ended" never came (not every one sends it), and retries a session that would not activate on the way back
             UIApplication.sharedApplication.idleTimerDisabled = YES;
+            front_lan_task_end();
             if (g_audio_intr) { LOG("audio session: active again with no interruption-ended notice; resuming"); g_audio_intr = 0; g_session_off = 1; }
             if (g_session_off) front_ios_audio_session();
             front_ios_audio_apply(); dm_focus_set(1); [g_root.view setNeedsLayout]; break;

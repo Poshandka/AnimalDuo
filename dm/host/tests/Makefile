@@ -214,7 +214,7 @@ run: notify-scheduler
 # Opt-in local multiplayer: no game data or external network required by unit tests.
 $(B)/t_socket: t_socket.c ../hle_socket.c ../hle_socket.h ../hle_net.c ../hle_lan.h ../hle.h ../dm.h $(GAME_H) | $(B)
 	clang -O1 -g -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_socket.c
-$(B)/t_ldn: t_ldn.c ../hle_ldn.c ../hle_lan.h ../hle_socket.c ../hle_socket.h ../hle.h ../dm.h $(GAME_H) | $(B)
+$(B)/t_ldn: t_ldn.c ../hle_ldn.c ../ldn_wait.inc ../hle_lan.h ../hle_socket.c ../hle_socket.h ../hle.h ../dm.h $(GAME_H) | $(B)
 	clang -O1 -g -Wall -Werror -Wno-unused-function -I.. $(GINC) -o $@ t_ldn.c
 .PHONY: lan
 $(B)/t_lan_history: t_lan_history.c ../hle_lan_history.c ../hle_friends.c ../hle_lan.h ../hle.h ../dm.h $(GAME_H) | $(B)
@@ -239,9 +239,9 @@ $(B)/t_companion_sort: t_companion_sort.cpp ../../third_party/eden_duo/acnh/acnh
 # Owned adaptive-camera assembly and publication state; no game files needed.
 $(B)/t_view_adapter: t_view_adapter.c t_view_adapter.S ../../games/01006F8002326000/view.s | $(B)
 	clang -O1 -g -Wall -o $@ $^
-$(B)/t_view_state: t_view_state.c ../hle_view.c ../front.h ../dm.h $(GAME_H) | $(B)
+$(B)/t_view_state: t_view_state.c ../hle_view.c ../front.h ../dm.h ../control_presentation.h $(GAME_H) | $(B)
 	clang -O1 -g -Wall -Wno-unused-function $(GINC) -o $@ t_view_state.c
-$(B)/t_view_state_tsan: t_view_state.c ../hle_view.c ../front.h ../dm.h $(GAME_H) | $(B)
+$(B)/t_view_state_tsan: t_view_state.c ../hle_view.c ../front.h ../dm.h ../control_presentation.h $(GAME_H) | $(B)
 	clang -O1 -g -Wall -Wno-unused-function -fsanitize=thread $(GINC) -o $@ t_view_state.c
 
 $(B)/t_present_layout: t_present_layout.c ../present_layout.h

@@ -31,5 +31,14 @@ int main(void){
     point.y=.78125f;float x=point.x,y=point.y;assert(dm_view_touch(&x,&y)&&fabsf(y-.875f)<.00001f);
     atomic_store((_Atomic uint64_t *)(state+48),54);assert(dm_view_touch_context()==6);
     x=point.x;y=point.y;assert(dm_view_touch(&x,&y)&&fabsf(y-.875f)<.00001f);
-    puts("view input: canonical keyboard coordinates, coherent gestures, edge rejection and disabled passthrough passed");return 0;
+    // Wide screens preserve vertical UI coverage and extend horizontally. A
+    // canonical key at (1/4,7/8) therefore appears inside the centred UI region.
+    dm_touch_set(NULL,0);touch_fill(sample,1200000000);touch_fill(sample,1220000000);
+    dm_view_target(21.0/9);point.x=.5f-.25f*(16.0f/21);point.y=.875f;
+    dm_touch_set(&point,1);assert(touch_fill(sample,1240000000)==1);
+    assert(read32(sample,0x20)==320 && read32(sample,0x24)==630);
+    assert(gesture_fill(gesture,1,1240000000)==1 && read32(gesture,0x18)==320 && read32(gesture,0x1c)==630);
+    x=0;y=.5f;assert(!dm_view_touch(&x,&y));x=1;y=.5f;assert(!dm_view_touch(&x,&y));
+    dm_view_target(0);x=0;y=.5f;assert(dm_view_touch(&x,&y)&&x==0&&y==.5f);
+    puts("view input: wide/narrow canonical keyboard coordinates, coherent gestures, edge rejection and disabled passthrough passed");return 0;
 }
