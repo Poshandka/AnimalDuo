@@ -39,7 +39,7 @@ namespace acnh::live {
 
 // ---- save layout (GSaveMain = main.dat, GSavePersonal = personal.dat; 3.0.x schema) ----------
 namespace M {
-inline constexpr uint32_t Size = 0x9B0E90;
+inline constexpr uint32_t Size = 0x9B0E90, Land = 0x110;
 inline constexpr uint32_t Villager = 0x120, VillagerStride = 0x13230, VillagerCount = 10;
 inline constexpr uint32_t VillagerBirthDate = 0x12674; // Animal.BirthDate GSaveDate {u16 y,u8 m,d}
 inline constexpr uint32_t IslandName = 0x1E393C;       // Land.LandId.Name char16[10]
@@ -104,7 +104,16 @@ struct LiveSnapshot {
     std::string dead_pins;     ///< the pins whose words did not match (',' separated)
     uint32_t dead_domains = 0; ///< live::Domain bits closed by those pins
     uint64_t main_base = 0, main_size = 0, heap_lo = 0, heap_hi = 0;
-    uint64_t main_dat = 0; ///< main.dat's bytes (a heap object) when save_ok
+    uint64_t main_dat = 0; ///< current island buffer: full main.dat or a visitor's Land-only data
+    uint64_t island_bytes = 0, island_tree = 0;
+    uint32_t land_offset = 0; ///< main.dat's Land prefix omitted from the current buffer
+    uint64_t IslandField(uint32_t offset, size_t size = 1) const {
+        if (!main_dat || offset < land_offset)
+            return 0;
+        const uint64_t relative = offset - land_offset;
+        return relative <= island_bytes && size <= island_bytes - relative
+                   ? main_dat + relative : 0;
+    }
     int64_t reloc = 0;     ///< the host's "__relocation_delta"
 
     // ---- clock (TimeMgr CalendarTime = what the HUD shows) ----
@@ -263,6 +272,8 @@ public:
         uint64_t device_mgr = 0; ///< address of the NookPhone device manager pointer
         uint64_t actor_list = 0; ///< address of the actor list manager pointer
         uint64_t save_vt_slot2 = 0, save_vt_slot7 = 0;
+        uint64_t visit_save_slot2 = 0, visit_save_slot7 = 0;
+        uint64_t visit_player_map = 0, visit_player_records = 0;
         uint64_t player_actor_name = 0;
         uint64_t camera_slot = 0; ///< code of the camera component accessor (vtable identity)
         uint64_t app_table = 0, app_order = 0, app_frames = 0; ///< NookPhone app tables
@@ -285,7 +296,7 @@ private:
     bool ReadPosition(const Guest& g, int player_no, LiveSnapshot& out) const;
     void ReadScene(const Guest& g, LiveSnapshot& out);
     bool StateOf(const Guest& g, uint64_t sm, StateName& out) const;
-    uint64_t FindPlayerActor(const Guest& g, std::string& why) const;
+    uint64_t FindPlayerActor(const Guest& g, int local_no, std::string& why) const;
     uint64_t FindCamera(const Guest& g, uint64_t actor) const;
     void ReadIsland(const Guest& g, uint64_t main_dat, LiveSnapshot& out);
     void ReadPhone(const Guest& g, LiveSnapshot& out);
@@ -300,6 +311,8 @@ private:
     uint64_t main_base = 0, main_size = 0;
     std::shared_ptr<const std::vector<uint16_t>> case_table; ///< read once per resolve
     mutable uint64_t save_tree = 0; ///< the save object's field-handle tree (SaveData)
+    mutable uint64_t save_bytes = 0;
+    mutable uint32_t save_land_offset = 0;
     uint64_t chest_last_ms = 0, chest_source = 0;
     std::array<uint8_t, M::MuseumCount * 8> museum_buf{};
     std::vector<uint8_t> chest_buf; ///< kept across the storage refreshes

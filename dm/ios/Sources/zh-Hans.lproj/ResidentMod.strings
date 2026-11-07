@@ -42,6 +42,14 @@
 "Plot" = "住宅用地";
 "Moving in progress" = "正在搬家";
 "Replace" = "替换";
+"Catchphrase" = "当前口头禅";
+"Default catchphrase" = "默认口头禅";
+"Restore default catchphrase" = "恢复默认口头禅";
+"Reset nicknames and greetings" = "恢复默认称呼与问候";
+"Clear this animal's nicknames and custom greetings for all island players. Its catchphrase, house, gifts and friendship will be kept." = "清除这位动物对各位玩家使用的昵称和专属问候语，保留口头禅、房屋、礼物和友情。";
+"The house, clothing, gifts and friendship will be kept. The catchphrase, player nicknames and custom greetings will reset." = "保留房屋、衣物、礼物和友情，重置口头禅、对玩家的昵称和专属问候语。";
+"Replacement keeps the house, clothing, gifts and friendship, and resets custom speech. Deletion leaves an empty plot. Keep at least two residents." = "替换会保留房屋、衣物、礼物和友情，重置自定义说话习惯。删除后保留空用地，至少保留两位岛民。";
+"Restore this animal's default catchphrase. The house, decorations and friendship will be kept." = "恢复这位动物的原本口头禅，保留房屋、布置和友情。";
 "Delete resident" = "删除岛民";
 "Manage" = "管理";
 "Empty resident slot" = "空岛民位置";
@@ -69,6 +77,9 @@
 "This animal will leave the island. The housing plot remains available." = "这位动物会离开岛屿，原来的住宅位置将保留为空地。";
 "Restore the entire island, including player progress, to this backup. Your current save will be backed up first." = "将整座岛屿和玩家进度恢复到此备份，恢复前会先备份当前存档。";
 "Saved. Start the game to see your changes." = "已保存，启动游戏后即可查看。";
+"The current save could not be opened. You can restore a complete backup. The current files will be preserved first." = "当前存档无法读取，可以从完整备份恢复。恢复前会先保留当前文件。";
+"The current files will be preserved separately before restoring a complete backup." = "恢复完整备份前，会另外保留当前文件。";
+"Restore the entire island, including player progress, to this backup. The unreadable current files will be preserved separately first." = "将整座岛屿和玩家进度恢复到此备份。恢复前会另外保留当前无法读取的文件。";
 "The resident catalog is missing or incompatible." = "动物名单缺失或版本不兼容。";
 "This editor supports only Animal Crossing 3.0.3 saves." = "此功能仅支持动森 3.0.3 的存档。";
 "The save failed its integrity check. No changes were written." = "存档完整性校验未通过，没有写入修改。";

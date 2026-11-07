@@ -76,6 +76,8 @@
 "Drag the labels to move control groups. Portrait excludes the bottom navigation bar." = "拖动标签移动对应按键组。竖屏预览不包含底部标签栏。";
 "Button size" = "按键大小";
 "Button opacity" = "按键透明度";
+"Left stick slow-walk zone" = "左摇杆慢走区";
+"The percentage is relative to the outer ring radius. A larger zone lets you push farther before speeding up." = "百分比按外圈半径计算。慢走区越大，左摇杆需要推得越远才会加速。";
 "Stick dead zone" = "摇杆死区";
 "Reset this layout" = "重置当前布局";
 "Save" = "保存";

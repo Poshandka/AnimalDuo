@@ -15,6 +15,7 @@ run: $(B)/t_view_input $(B)/t_present_layout $(B)/t_view_adapter $(B)/t_view_sta
 	$(B)/t_companion
 	$(B)/t_companion_apple
 	$(B)/t_companion_material
+	$(B)/t_companion_players
 	$(B)/t_heap_size
 	$(B)/t_touch
 	$(B)/t_gesture
@@ -48,6 +49,9 @@ run: $(B)/t_view_input $(B)/t_present_layout $(B)/t_view_adapter $(B)/t_view_sta
 	$(B)/t_nro
 	$(B)/t_symbols
 run: $(B)/t_companion_apple
+run: $(B)/t_companion_players
+$(B)/t_companion_players: t_companion_players.cpp ../../third_party/eden_duo/acnh/acnh_live.cpp ../../third_party/eden_duo/acnh/acnh_live_extra.cpp $(wildcard ../../third_party/eden_duo/acnh/*.h ../../third_party/eden_duo/acnh/*.inc) | $(B)
+	clang++ -O1 -g -std=c++20 -ffunction-sections -Wl,-dead_strip -I../../third_party/eden_duo -o $@ t_companion_players.cpp
 run: $(B)/t_companion_material
 $(B)/t_companion_material: t_companion_material.mm ../../third_party/eden_duo/acnh/acnh_draw.cpp ../../third_party/eden_duo/acnh/acnh_draw.h | $(B)
 	clang++ -O1 -g -std=c++20 -fobjc-arc -ffp-contract=off -I../../third_party/eden_duo -o $@ t_companion_material.mm ../../third_party/eden_duo/acnh/acnh_draw.cpp -framework Foundation -framework Metal

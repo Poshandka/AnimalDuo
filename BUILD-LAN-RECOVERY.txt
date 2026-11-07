@@ -1,0 +1,28 @@
+AnimalDuo local-play recovery and companion follow-up
+Application build: 3.0.60
+Game content: Animal Crossing: New Horizons 3.0.3
+Source baseline: AnimalDuo 1.1 main dd1c035, with the documented local fixes.
+
+Changes
+- Pending guest socket requests retain their active timeout during a coordinated pause.
+- The companion selects the local PlayerActor in multiplayer scenes using an exact code pin.
+- Visiting reads the exact Land-only island buffer class with bounded field offsets.
+- Personal data follows the game's network-player to home-resident mapping.
+- Multiplayer inventory writes remain disabled. Native reservation limits remain 30/60 seconds.
+
+Build
+Follow PUBLIC-SOURCE.md and docs/BUILD.zh-CN.md using external, matching game resources.
+Use GAME=01006F8002326000 and the same verified resource inputs as 3.0.59.
+Generate c1_full.tsv and cb_extent.tsv from the matching shader libraries in the external game profile.
+Prepare the iOS project with build_ipa.sh --prepare-xcode and build generic/platform=iOS Release
+with CURRENT_PROJECT_VERSION=3.0.60, CODE_SIGNING_ALLOWED=NO and CODE_SIGNING_REQUIRED=NO.
+Keep all generated game data outside the source tree.
+
+The local iPad/iPhone package is an unsigned generic arm64 thin update, minimum iOS 26.
+It reuses compatible resources already installed by preceding builds. It changes only
+the executable and Info.plist; it cannot establish a new resource installation.
+Retain the same installation identity and app data container when updating.
+No physical app is signed or installed by the development agent.
+
+Corresponding source includes the modified companion module and its original component notices.
+No game resources, player saves, raw device logs, signing material or cloud bookmarks are included.

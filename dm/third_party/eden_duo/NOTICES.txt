@@ -20,6 +20,12 @@ modified on 2026-10-29 to add guarded moves, stable sorting and native
 command-menu actions. acnh_ui_art.cpp and acnh_font.cpp add bounded native
 label rendering and the ParkExt fallback for Apple Canvas on 2026-10-29.
 Original copyright and license notices are retained. No extracted game images are added to this source directory.
+The live ACNH reader and its instruction pins were modified on 2026-11-06
+to identify the local PlayerActor by its validated player-number field in
+multiplayer scenes instead of rejecting a scene with several players.
+The live and extra readers also recognize the exact Land-only visitor
+save class, bound island fields to its allocation, and resolve visiting
+personal data through the game's network-player/home-resident mapping.
 All companion pictures, names and island information come from the user's
 own running game and RomFS.
 

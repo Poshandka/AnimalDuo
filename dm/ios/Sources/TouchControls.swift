@@ -7,17 +7,30 @@ struct TouchControlOffset:Codable,Equatable { var x:Double=0;var y:Double=0 }
 struct TouchControlProfile:Codable,Equatable {
     var scale:Double=1,opacity:Double=1,deadZone:Double=0.1
     var offsets:[String:TouchControlOffset]=[:]
+    // A missing radius uses the original linear response.
+    var slowWalkRadius: Double?
+    var slowWalkRadiusRange: ClosedRange<Double> {
+        max(0.20, deadZone + 0.05)...0.70
+    }
+
     mutating func validate() {
         scale=scale.isFinite ? min(1.35,max(0.65,scale)):1
         opacity=opacity.isFinite ? min(1,max(0.25,opacity)):1
         deadZone=deadZone.isFinite ? min(0.3,max(0,deadZone)):0.1
+        if let radius = slowWalkRadius {
+            let range = slowWalkRadiusRange
+            slowWalkRadius = radius.isFinite ? min(range.upperBound, max(range.lowerBound, radius)) : nil
+        }
         offsets=offsets.filter{Self.groups.contains($0.key)}.mapValues { o in
             TouchControlOffset(x:o.x.isFinite ? min(0.75,max(-0.75,o.x)):0,y:o.y.isFinite ? min(0.75,max(-0.75,o.y)):0)
         }
     }
     static let groups=["leftStick","rightStick","face","dpad","shoulderL","shoulderR","clickL","clickR","minus","plus","layout"]
     var dictionary:[String:Any] {
-        ["scale":scale,"opacity":opacity,"deadZone":deadZone,"offsets":offsets.mapValues{["x":$0.x,"y":$0.y]}]
+        var values: [String: Any] = ["scale":scale,"opacity":opacity,"deadZone":deadZone,
+                                    "offsets":offsets.mapValues{["x":$0.x,"y":$0.y]}]
+        values["slowWalkRadius"] = slowWalkRadius
+        return values
     }
     static func load(_ portrait:Bool,defaults:UserDefaults = .standard)->Self {
         guard let data=defaults.data(forKey:portrait ? "DmTouchPortraitV1":"DmTouchLandscapeV1"),var value=try? JSONDecoder().decode(Self.self,from:data) else{return Self()}
@@ -56,6 +69,23 @@ struct TouchControlsEditor:View {
     @State private var handles:[TouchControlHandle]=[]
     @State private var dragOrigins:[String:TouchControlOffset]=[:]
     private var profile:Binding<TouchControlProfile> {portrait ? $portraitProfile:$landscapeProfile}
+    private var walkRadius: Binding<Double> {
+        Binding {
+            let current = profile.wrappedValue
+            return current.slowWalkRadius ?? dm_touch_default_slow_walk_radius(current.deadZone)
+        } set: { value in
+            profile.wrappedValue.slowWalkRadius = value
+            profile.wrappedValue.validate()
+        }
+    }
+    private var deadZone: Binding<Double> {
+        Binding {
+            profile.wrappedValue.deadZone
+        } set: { value in
+            profile.wrappedValue.deadZone = value
+            profile.wrappedValue.validate()
+        }
+    }
     var body:some View {
         NavigationStack {
             ScrollView {
@@ -85,7 +115,8 @@ struct TouchControlsEditor:View {
                         .font(.footnote).foregroundStyle(.secondary)
                     slider("Button size",profile.scale,0.65...1.35)
                     slider("Button opacity",profile.opacity,0.25...1)
-                    slider("Stick dead zone",profile.deadZone,0...0.3)
+                    slowWalkControl
+                    slider("Stick dead zone",deadZone,0...0.3)
                     Button(companionText("Reset this layout")){profile.wrappedValue=TouchControlProfile();dragOrigins=[:]}
                 }.padding()
             }
@@ -97,8 +128,36 @@ struct TouchControlsEditor:View {
             .onChange(of:portrait){_ in handles=[];dragOrigins=[:]}
         }.presentationDetents([.large])
     }
+    private var slowWalkControl: some View {
+        let diameter = 56.0
+        let zone = diameter * walkRadius.wrappedValue
+        let dead = diameter * deadZone.wrappedValue
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                ZStack {
+                    Circle().strokeBorder(.secondary, lineWidth: 1)
+                    Circle().fill(Color.accentColor.opacity(0.55)).frame(width: zone, height: zone)
+                    Circle().fill(.background).frame(width: dead, height: dead)
+                }
+                .frame(width: diameter, height: diameter)
+                .accessibilityHidden(true)
+                slider("Left stick slow-walk zone", walkRadius, profile.wrappedValue.slowWalkRadiusRange)
+            }
+            Text(companionText("The percentage is relative to the outer ring radius. A larger zone lets you push farther before speeding up."))
+                .font(.footnote).foregroundStyle(.secondary)
+        }
+    }
     private func slider(_ title:String,_ value:Binding<Double>,_ range:ClosedRange<Double>)->some View {
-        VStack {HStack{Text(companionText(title));Spacer();Text("\(Int(value.wrappedValue*100))%").monospacedDigit().foregroundStyle(.secondary)};Slider(value:value,in:range,step:0.01)}
+        VStack {
+            HStack {
+                Text(companionText(title))
+                Spacer()
+                Text(value.wrappedValue.formatted(.percent.precision(.fractionLength(0))))
+                    .monospacedDigit().foregroundStyle(.secondary)
+            }
+            Slider(value: value, in: range, step: 0.01)
+                .accessibilityLabel(Text(companionText(title)))
+        }
     }
 }
 #endif

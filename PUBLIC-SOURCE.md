@@ -4,7 +4,7 @@
 
 ## Scope
 
-This is a source snapshot of the Animal Crossing 3.0.3 Apple extension, based on nxnative revision b7a5cd43453722d448e07407d88a9c05ed294492. It preserves the original source and copyright notices. The v1.1 tag matches application 3.0.59 (game 3.0.3); main also includes the CI compatibility fixes described below. Publication removes private records, unnecessary debug metadata and the nested dependency archive. The dedicated AnimalDuo tree also omits other games' large profile tables and the upstream screenshot gallery; their small, unchanged metadata and patch files survive only as opt-in test fixtures. The complete ACNH profile, runtime, dependencies and licenses are retained.
+This is the AnimalDuo 1.2 source snapshot for application build 3.0.68 and Animal Crossing 3.0.3. It is based on nxnative revision b7a5cd43453722d448e07407d88a9c05ed294492 and preserves the original source and copyright notices. The tree contains the Animal Crossing profile and small tool-test fixtures. [Release notes](RELEASES/1.2.md)
 
 Included extensions:
 
@@ -20,24 +20,35 @@ Included extensions:
 
 The Mac native launcher does not provide the Swift resident-management UI; it can load the same edited island and generated dialogue overlay. This list does not promise feature parity across every Apple device.
 
-## AnimalDuo 1.1 / application build 3.0.59
+## AnimalDuo 1.2 / application build 3.0.68
 
-This release adds expanded screen/UI and transition-mask coverage, 3D control migration,
-controller companion layout, iPad half/full canvas adaptation and coordinated local-play
-waiting. The host selects 30 seconds by default or 60 seconds; all members must support
-waiting. Old builds keep ordinary LAN compatibility. iOS termination or a lost network
-can still end a visit before the limit. See [the Chinese release notes](RELEASES/1.1.md).
+The release includes the hosted CI fixes that followed v1.1 and the local-play, resident
+management and touch input updates below. A compatible existing installation can reuse
+the installed resources for game 3.0.3. A first installation needs matching game resources.
+The fullscreen, transition and coordinated waiting changes were introduced in 1.1.
+[1.1 release notes](RELEASES/1.1.md)
 
-VERSION contains the project release 1.1; APP_BUILD contains 3.0.59; game content remains
-3.0.3. Thin updates can reuse compatible previously installed resources but cannot
-bootstrap an installation. Absolute reverse-fold heading, intermittent room loading,
-frame-time spikes, hours-long behavior and physical cross-device acceptance remain open.
+### Local-play recovery / application builds 3.0.60 and 3.0.61
+
+Pending guest socket requests count only active time during a coordinated pause. The companion identifies the local player during visits by using the game's network-player/home-resident mapping and verifies the exact Land-only visitor save class before reading it. An admitted session retains its peer transport and recreates defunct Bonjour discovery objects after returning from the background. [Guest socket and companion notes](BUILD-LAN-RECOVERY.txt) · [Short-return notes](BUILD-LAN-SHORT-RETURN.txt)
+
+### Resident speech / application builds 3.0.62 and 3.0.63
+
+Resident replacement resets the localized phrase array, player nicknames, custom greetings and associated markers. The catalog supplies the default phrase for each of the eleven save languages. Separate menu actions restore the default phrase or the default nicknames and greetings for residents already on the island. [Catchphrase notes](BUILD-RESIDENT-PHRASE.txt) · [Speech audit](BUILD-RESIDENT-AUDIT.txt)
+
+### Resident lifecycle and backup recovery / application builds 3.0.64 to 3.0.66
+
+New animals use the island's last saved calendar date. Editing checks pending NPC references in every house and verifies the complete save inventory before an edit or restore. Backup metadata loads on the manager's worker. Recovery can browse and restore a verified backup even when the current save cannot be read, preserving unreadable files separately. [Lifecycle notes](BUILD-RESIDENT-LIFECYCLE.txt) · [Housing notes](BUILD-RESIDENT-SAFETY.txt) · [Recovery notes](BUILD-RESIDENT-RECOVERY.txt)
+
+### Left stick slow-walk zone / application build 3.0.68
+
+The launcher's touch layout editor adjusts how far the left stick can travel before it leaves the slow-walk range. Each orientation stores a separate radius as a percentage of the outer ring. Existing profiles keep their linear response until the slider is moved. See [Editable touch control geometry](docs/reference/services.md#editable-touch-control-geometry).
 
 ## Inputs and build
 
 Supply your own game packages, console keys and matching update/DLC outside the source tree. No keys, game packages, game-derived dialogue overlays, resident save templates, player saves or ready-to-play IPA/Mac apps are included.
 
-Use Apple Silicon macOS, Xcode and the dependencies described in [the development guide](docs/development.md). The frozen 3.0.59 iOS release used Xcode 27.2, generic arm64 and minimum iOS 26. Historical Mac packaging used an Apple-m1 CPU baseline and minimum macOS 27. These are build settings, not a promise about other toolchain versions.
+Use Apple Silicon macOS, Xcode and the documented dependencies. The local 3.0.68 iOS build used Xcode 27.2, generic arm64 and minimum iOS 26. Historical Mac packaging used an Apple-m1 CPU baseline and minimum macOS 27. [Development guide](docs/development.md)
 
 For the normal extraction/rewriter/shader preparation pipeline, run from this source root:
 
@@ -45,7 +56,7 @@ For the normal extraction/rewriter/shader preparation pipeline, run from this so
 
 For standard unsigned iOS or native Mac packaging, select --platform ios or --platform mac-app. Consult the script's --help and [the packing guide](docs/development.md#the-packing-script-in-detail). Keep all generated files on the external build volume.
 
-The optional resident catalog is generated with scripts/build_acnh_resident_catalog.py. Use --help for its RomFS, template-source and output arguments. Obtain the pinned [NHSE source at cb07454](https://github.com/kwsch/NHSE/tree/cb07454) separately and keep its generated templates outside the repository. No personal save is needed to generate that catalog. Preserve NHSE's GPL notices with any template-containing build.
+Generate the optional resident catalog with the 1.2 version of scripts/build_acnh_resident_catalog.py to include all eleven phrase languages. Use --help for the RomFS, template-source and output arguments. The script uses external game resources and the optional NHSE templates as inputs. Keep the generated files outside the repository and preserve NHSE's GPL notices with template-containing builds. [Pinned NHSE source at cb07454](https://github.com/kwsch/NHSE/tree/cb07454)
 
 Before packaging with the resident manager enabled, generate and verify the starter-dialogue overlay:
 
@@ -56,15 +67,13 @@ For the final unsigned iOS build, use dm/ios/tools/build_ipa.sh with GAME=01006F
 
 For native Mac packaging, first build dm/host with GAME=01006F8002326000 and an Apple-m1 CPU baseline, then pass the verified merged RomFS, matching external patched modules/libraries/profile tables/fonts and add-on content to dm/mac/pack_app.py. Set --cloud-save-setup for the chooser flow. Review its --help for the required options. Ad-hoc Mac signing and unsigned iOS packaging are separate workflows.
 
-BUILD-ANIMALDUO-1.1.txt describes the current source; historical BUILD files describe earlier snapshots. Their references to private validation recordings are historical; those recordings are deliberately excluded from this public tree. Production unit-test sources remain available.
+The BUILD files describe earlier snapshots. The current build instructions and version settings are in the build guide. [Build guide](docs/BUILD.zh-CN.md)
 
 ## Validation
 
-The v1.1 publication check verified production runtime and build-tool bytes against the frozen 3.0.59 corresponding-source archive. The subsequent CI fixes on main add a compile-time SDK guard around the optional hinge observer, make the fake-engine haptics timer test deterministic, and correct Python loader/registry/catalog types while shrinking the existing diagnostic baseline. Production haptics scheduling, game patches and shader inputs are unchanged. These source edits are recorded separately in SOURCE-REVIEW.json; main no longer claims complete byte identity with the frozen release. Use main for these fixes; the v1.1 tag and source archive remain the original release.
+The published source uses the 3.0.68 runtime and build inputs. Local validation includes the unsigned iOS build, startup regression, a test-island slow-walk comparison and the earlier short-return LAN tests. Physical-device LAN recovery, cross-device iCloud transfer and a repeated-room loading incident remain open. [Source review](SOURCE-REVIEW.json) · [Game and validation notes](dm/games/01006F8002326000/README.md)
 
-Documentation links and asset-independent unit checks are recorded in the accompanying source review. Historical M4 measurements and unresolved issues are documented in [the game note](dm/games/01006F8002326000/README.md); they are not fresh device measurements from this publication. Check the commit-specific [GitHub Actions results](https://github.com/ShawndYang/AnimalDuo/actions) for hosted build and test status.
-
-Do not infer physical iPad/iPhone/M2, cross-device cloud/LAN, all-weather shader coverage or guaranteed prolonged stability from local Mac results. A repeated-room loading-readiness incident remains unresolved. Raw private run logs and screenshots are not needed to build this source.
+Hosted checks are reported per commit. [GitHub Actions](https://github.com/ShawndYang/AnimalDuo/actions)
 
 ## Dependencies and licenses
 

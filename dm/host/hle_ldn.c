@@ -28,8 +28,8 @@ _Static_assert(sizeof(lan_hold) == 16, "native wait frame");
 typedef struct { int used, valid; char name[64]; DNSServiceRef resolver; uint32_t ip; uint16_t port; dm_ldn_info info; } lan_room;
 static struct {
     pthread_mutex_t lock; pthread_cond_t changed; pthread_t thread;
-    int running, stop, state, reason, listener, wake[2], station, drop_station, browse;
-    uint16_t port; uint64_t revision, event; dm_ldn_mac mac;
+    int running, stop, state, reason, listener, wake[2], station, drop_station, browse, discovery_refresh;
+    uint16_t port; uint64_t revision, event, discovery_epoch; dm_ldn_mac mac;
     dm_ldn_info info; dm_ldn_config config; dm_ldn_security security;
     dm_ldn_update updates[8]; dm_ldn_mac filters[8]; int filter_count;
     struct {
@@ -117,11 +117,22 @@ static void signal_change(void) {
     if (e) hle_signal_system_event_binding(e);
 }
 static void discovery_failed(int error) {
-    LOG("[RED] ldn: Bonjour failed (%d); check Local Network permission", error);
     pthread_mutex_lock(&lan.lock);
+    // iOS may retire the application's mDNS daemon connection while suspended.
+    // That discovery handle is independent of an authenticated peer's TCP/UDP
+    // transport. Recreate discovery objects; do not invent a member departure.
+    if (error == kDNSServiceErr_DefunctConnection &&
+        (lan.state == DM_LDN_HOST || lan.state == DM_LDN_CONNECTED)) {
+        lan.discovery_epoch++;
+        pthread_mutex_unlock(&lan.lock);
+        LOG("ldn: Bonjour connection invalidated (%d); retaining active peer transport", error);
+        wake_worker(); return;
+    }
     lan.state = DM_LDN_ERROR; lan.reason = 2; lan.browse = 0; changed_locked();
     wait_end_locked(1, lan_ms());
-    pthread_mutex_unlock(&lan.lock); signal_change(); wait_apply();
+    pthread_mutex_unlock(&lan.lock);
+    LOG("[RED] ldn: Bonjour failed (%d); check discovery service and Local Network permission", error);
+    signal_change(); wait_apply();
 }
 static void nonblock(int fd) { fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK); int yes = 1; setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &yes, sizeof yes); }
 static int wait_fd(int fd, short events, uint64_t deadline) {
@@ -258,31 +269,57 @@ static void station_lost(int reason) {
     wait_end_locked(1, lan_ms());
     pthread_mutex_unlock(&lan.lock); signal_change(); wait_apply();
 }
+static void stop_resolvers(void) {
+    // Only the transport worker owns DNSServiceRef objects. Retain resolved
+    // endpoint metadata for authenticated rejoin; a dead resolver is not a dead room.
+    DNSServiceRef refs[LAN_MAX_DISCOVERED];
+    pthread_mutex_lock(&lan.lock);
+    for (int i = 0; i < LAN_MAX_DISCOVERED; i++) {
+        refs[i] = lan.rooms[i].resolver; lan.rooms[i].resolver = NULL;
+    }
+    pthread_mutex_unlock(&lan.lock);
+    for (int i = 0; i < LAN_MAX_DISCOVERED; i++) if (refs[i]) DNSServiceRefDeallocate(refs[i]);
+}
 #include "ldn_wait.inc"
 static void *lan_worker(void *unused) {
     (void)unused; DNSServiceRef registration = NULL, browser = NULL;
     lan_client clients[LAN_MAX_CLIENTS]; for (int i = 0; i < LAN_MAX_CLIENTS; i++) clients[i].fd = -1;
-    uint64_t published = 0, sent = 0, last_ping = 0, station_seen = lan_ms(), announced_hold = 0;
+    uint64_t published = 0, sent = 0, last_ping = 0, station_seen = lan_ms(), announced_hold = 0, discovery_epoch = 0;
     size_t station_have = 0; int tracked_station = -1;
     uint8_t station_input[sizeof(lan_header) + sizeof(dm_ldn_info)];
     for (;;) {
         pthread_mutex_lock(&lan.lock);
         int stop = lan.stop, state = lan.state, browsing = lan.browse, station = lan.station;
+        int background = lan.wait.local_background;
+        int refresh_discovery = lan.discovery_refresh;
+        uint64_t current_discovery_epoch = lan.discovery_epoch;
         int drop = lan.drop_station, reason = lan.reason; lan.drop_station = 0;
         unsigned capabilities = wait_caps_locked();
         uint64_t revision = lan.revision; dm_ldn_info info = lan.info;
         if (drop && station >= 0) { lan.station = -1; station_have = 0; }
         pthread_mutex_unlock(&lan.lock);
         if (stop) break;
+        if (discovery_epoch != current_discovery_epoch) {
+            if (registration) { DNSServiceRefDeallocate(registration); registration = NULL; }
+            if (browser) { DNSServiceRefDeallocate(browser); browser = NULL; }
+            stop_resolvers(); published = 0; discovery_epoch = current_discovery_epoch;
+        }
+        // Discovery runs only while foregrounded, and a joined station no
+        // longer scans. Retire daemon handles before iOS invalidates them; the
+        // peer control stream and fixed pause reservation continue independently.
+        browsing = browsing && !background && state != DM_LDN_CONNECTED;
         if (drop && station >= 0) { close(station); station = -1; }
         if (station != tracked_station) { tracked_station = station; station_seen = lan_ms(); station_have = 0; }
         if (state != DM_LDN_HOST) {
-            if (registration) { DNSServiceRefDeallocate(registration); registration = NULL; published = 0; }
             for (int i = 0; i < LAN_MAX_CLIENTS; i++) if (clients[i].fd >= 0) {
                 if (clients[i].node > 0) send_frame(clients[i].fd, LAN_EXIT, reason == 6 ? 6 : 3, NULL, 0);
                 close(clients[i].fd); clients[i].fd = -1;
             }
-        } else if (revision != published) {
+        }
+        if ((state != DM_LDN_HOST || background) && registration) {
+            DNSServiceRefDeallocate(registration); registration = NULL; published = 0;
+        }
+        if (state == DM_LDN_HOST && !background && revision != published) {
             TXTRecordRef txt;
             if (!make_txt(&txt, &info)) {
                 DNSServiceErrorType r;
@@ -295,8 +332,18 @@ static void *lan_worker(void *unused) {
             }
             TXTRecordDeallocate(&txt);
         }
-        if (!browsing && browser) { DNSServiceRefDeallocate(browser); browser = NULL; }
-        if (browsing && !browser) {
+        if (!browsing) {
+            if (browser) { DNSServiceRefDeallocate(browser); browser = NULL; }
+            stop_resolvers();
+        }
+        if (browsing && (!browser || refresh_discovery)) {
+            if (browser) { DNSServiceRefDeallocate(browser); browser = NULL; }
+            stop_resolvers();
+            // Dormant endpoint metadata is for direct authenticated rejoin only.
+            // An explicit new scan waits for a fresh discovery generation.
+            pthread_mutex_lock(&lan.lock);
+            memset(lan.rooms, 0, sizeof lan.rooms); lan.discovery_refresh = 0;
+            pthread_cond_broadcast(&lan.changed); pthread_mutex_unlock(&lan.lock);
             DNSServiceErrorType r = DNSServiceBrowse(&browser, 0, 0, LAN_SERVICE, NULL, browse_reply, NULL);
             if (r) discovery_failed(r);
         }
@@ -354,7 +401,7 @@ static void *lan_worker(void *unused) {
                         pthread_mutex_lock(&lan.lock); lan.rooms[indices[k]].resolver = NULL; lan.rooms[indices[k]].valid = 0; pthread_mutex_unlock(&lan.lock);
                     } else {
                         if (refs[k] == registration) registration = NULL;
-                        if (refs[k] == browser) browser = NULL;
+                        if (refs[k] == browser) { browser = NULL; stop_resolvers(); }
                         discovery_failed(r);
                     }
                 }
@@ -415,7 +462,7 @@ static void *lan_worker(void *unused) {
         wait_worker(clients, station, &announced_hold);
     }
     if (registration) DNSServiceRefDeallocate(registration); if (browser) DNSServiceRefDeallocate(browser);
-    for (int i = 0; i < LAN_MAX_DISCOVERED; i++) if (lan.rooms[i].resolver) { DNSServiceRefDeallocate(lan.rooms[i].resolver); lan.rooms[i].resolver = NULL; }
+    stop_resolvers();
     pthread_mutex_lock(&lan.lock); int exit_reason = lan.reason == 3 ? 3 : 4; pthread_mutex_unlock(&lan.lock);
     for (int i = 0; i < LAN_MAX_CLIENTS; i++) if (clients[i].fd >= 0) {
         if (clients[i].node > 0) send_frame(clients[i].fd, LAN_EXIT, exit_reason, NULL, 0);
@@ -439,7 +486,7 @@ uint32_t dm_ldn_init(void) {
     socklen_t length = sizeof address; getsockname(fd, (void *)&address, &length);
     lan.listener = fd; lan.port = ntohs(address.sin_port); nonblock(fd); nonblock(lan.wake[0]); nonblock(lan.wake[1]);
     arc4random_buf(lan.mac.bytes, 6); lan.mac.bytes[0] = (lan.mac.bytes[0] | 2) & ~1;
-    lan.stop = 0; lan.reason = 0; lan.state = DM_LDN_INIT; lan.event = 0; lan.browse = 0; lan.drop_station = 0; lan.filter_count = 0;
+    lan.stop = 0; lan.reason = 0; lan.state = DM_LDN_INIT; lan.event = 0; lan.browse = 0; lan.discovery_refresh = 0; lan.drop_station = 0; lan.filter_count = 0; lan.discovery_epoch = 0;
     wait_end_locked(0, lan_ms()); lan.wait.capabilities = 1; lan.wait.token = 0; lan.wait.failed_until = 0;
     lan.wait.handled_seq = lan.wait.local_seq;
     const char *wait_seconds = getenv("DM_LDN_WAIT_SECONDS");
@@ -501,13 +548,15 @@ uint32_t dm_ldn_scan(dm_ldn_info *out, int *count, int capacity, const dm_ldn_fi
     if (!count || capacity < 0 || capacity > 64 || (capacity && !out) || !filter || (filter->flags & ~63u)) return DM_LDN_BAD_ARGUMENT;
     *count = 0; pthread_mutex_lock(&lan.lock);
     if (!lan.running || lan.state == DM_LDN_ERROR) { pthread_mutex_unlock(&lan.lock); return DM_LDN_BAD_STATE; }
+    if (!lan.browse) lan.discovery_refresh = 1;
     lan.browse = 1; pthread_mutex_unlock(&lan.lock); wake_worker();
     struct timespec deadline; clock_gettime(CLOCK_REALTIME, &deadline); deadline.tv_sec++;
     pthread_mutex_lock(&lan.lock);
     for (;;) {
         int n = 0;
         dm_ldn_filter effective = *filter; if (!private_scan) effective.flags &= ~8u;
-        for (int i = 0; i < LAN_MAX_DISCOVERED && n < capacity; i++) if (lan.rooms[i].valid && matches(&lan.rooms[i].info, &effective, channel)) out[n++] = lan.rooms[i].info;
+        if (!lan.discovery_refresh)
+            for (int i = 0; i < LAN_MAX_DISCOVERED && n < capacity; i++) if (lan.rooms[i].valid && matches(&lan.rooms[i].info, &effective, channel)) out[n++] = lan.rooms[i].info;
         if (n || !capacity || !lan.running || lan.state == DM_LDN_ERROR) { *count = n; break; }
         dm_thread_native_wait(1); int r = pthread_cond_timedwait(&lan.changed, &lan.lock, &deadline); dm_thread_native_wait(0);
         if (r == ETIMEDOUT) break;
@@ -542,7 +591,7 @@ uint32_t dm_ldn_connect(const dm_ldn_info *info, const dm_ldn_security *security
         // Hold tokens belong to this authenticated stream, not a previously
         // visited island whose coordinator may have used larger token values.
         wait_end_locked(0, lan_ms()); lan.wait.token = 0; lan.wait.failed_until = 0;
-        lan.station = fd; fd = -1; update_info_locked(&snapshot); lan.state = DM_LDN_CONNECTED; lan.reason = 0; result = 0;
+        lan.station = fd; fd = -1; update_info_locked(&snapshot); lan.state = DM_LDN_CONNECTED; lan.reason = 0; lan.browse = lan.discovery_refresh = 0; result = 0;
         lan.wait.capabilities = h.result & 3u;
         if (lan.wait.local_background && wait_supported_locked()) {
             lan.wait.local_seq++; lan.wait.local_pending = 1; lan.wait.pending_deadline = lan_ms() + 3000;

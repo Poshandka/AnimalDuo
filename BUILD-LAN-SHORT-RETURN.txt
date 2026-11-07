@@ -1,0 +1,26 @@
+AnimalDuo short background-return follow-up
+Application build: 3.0.61
+Game content: Animal Crossing: New Horizons 3.0.3
+Baseline: the delivered 3.0.60 runtime and corresponding source.
+
+The authenticated room is independent of its Bonjour discovery handles. A joined
+station stops scanning. Backgrounding retires daemon handles, and a foreground
+host republishes the same room. The exact defunct-connection error (-65569)
+recreates discovery objects without fabricating a peer departure or changing
+pause tokens or deadlines. Permission denial and actual peer loss still fail.
+The 3.0.60 socket and companion fixes remain included.
+
+Build using PUBLIC-SOURCE.md and docs/BUILD.zh-CN.md with your own matching game
+resources outside the source tree. Use GAME=01006F8002326000 and the unchanged
+3.0.60 shader/resource inputs. Generate c1_full.tsv and cb_extent.tsv from those
+matching shader libraries in the external profile. Prepare the iOS Xcode project
+with build_ipa.sh --prepare-xcode, then build generic/platform=iOS Release with
+CURRENT_PROJECT_VERSION=3.0.61, CODE_SIGNING_ALLOWED=NO and CODE_SIGNING_REQUIRED=NO.
+The local package is an unsigned generic arm64 thin update, minimum iOS 26.
+Retain the installation identity and app container to reuse installed resources
+and saves. No new resource import is needed for a compatible 3.0.60 installation.
+The original 30/60-second wait limits remain; force quitting ends an active visit.
+
+Source includes the modified host and regression tests with component licenses.
+Game resources, personal saves, raw device logs, cloud bookmarks and signing
+material are excluded. Physical-device acceptance is separate from local testing.

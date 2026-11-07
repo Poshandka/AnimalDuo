@@ -31,6 +31,8 @@ private extension View {
 
 final class ResidentManagerModel: ObservableObject {
     @Published var document: ResidentSave?
+    @Published private(set) var storage: ResidentSaveStorage?
+    @Published private(set) var backups: [ResidentBackup] = []
     @Published var busy = false
     @Published var error: String?
     @Published var message: String?
@@ -39,19 +41,36 @@ final class ResidentManagerModel: ObservableObject {
     let saveURL: URL
     init(catalogURL: URL, saveURL: URL) { self.catalogURL = catalogURL; self.saveURL = saveURL }
     func reload() { perform { _ in } }
-    func perform(_ operation: @escaping (ResidentSave?) throws -> Void) {
+    func perform(successMessage: String? = nil, _ operation: @escaping (ResidentSave?) throws -> Void) {
         guard !busy else { return }
-        busy = true
+        busy = true; message = nil
         let opened = document
         queue.async {
             var failure: String?
             do { try operation(opened) } catch { failure = residentText(error.localizedDescription) }
             var loaded: ResidentSave?
-            do { loaded = try ResidentSave(folder: self.saveURL, catalog: ResidentCatalog.load(self.catalogURL)) }
-            catch { if failure == nil { failure = residentText(error.localizedDescription) } }
-            DispatchQueue.main.async {
-                self.document = loaded; self.error = failure; self.busy = false
+            var storage: ResidentSaveStorage?
+            do {
+                let catalog = try ResidentCatalog.load(self.catalogURL)
+                let current = try ResidentSaveStorage(folder: self.saveURL)
+                storage = current
+                loaded = try ResidentSave(storage: current, catalog: catalog)
             }
+            catch { if failure == nil { failure = residentText(error.localizedDescription) } }
+            // Resolve metadata once on the worker. SwiftUI can reevaluate its
+            // sheet repeatedly; rendering must not enumerate the save provider.
+            let backups = storage?.backups ?? []
+            DispatchQueue.main.async {
+                self.document = loaded; self.storage = storage; self.backups = backups
+                self.error = failure; self.message = failure == nil ? successMessage : nil; self.busy = false
+            }
+        }
+    }
+    func restore(_ backup: ResidentBackup) {
+        let opened = storage
+        perform(successMessage: residentText("Saved. Start the game to see your changes.")) { _ in
+            guard let opened else { throw ResidentError.changed }
+            try opened.restore(backup, catalog: ResidentCatalog.load(self.catalogURL))
         }
     }
 }
@@ -64,12 +83,14 @@ private struct AnimalPickerRequest: Identifiable {
 }
 
 private enum ResidentConfirmation: Identifiable {
-    case replace(Int, ResidentAnimal), add(Int, ResidentAnimal), remove(Int), restore(ResidentBackup)
+    case replace(Int, ResidentAnimal), add(Int, ResidentAnimal), remove(Int), phrase(Int), addressing(Int), restore(ResidentBackup)
     var id: String {
         switch self {
         case .replace(let n, let a): return "replace-\(n)-\(a.id)"
         case .add(let n, let a): return "add-\(n)-\(a.id)"
         case .remove(let n): return "remove-\(n)"
+        case .phrase(let n): return "phrase-\(n)"
+        case .addressing(let n): return "addressing-\(n)"
         case .restore(let b): return "restore-\(b.id)"
         }
     }
@@ -95,7 +116,7 @@ struct ResidentManager: View {
             .overlay { if model.busy { ProgressView(residentText("Working…")).padding(24).background(.regularMaterial, in: RoundedRectangle(cornerRadius: 18)) } }
             .sheet(item: $picker, onDismiss: presentPendingConfirmation) { request in
                 if let save = model.document {
-                    ResidentAnimalPicker(catalog: save.catalog, occupied: Set(save.slots.filter { $0.id != request.slot }.compactMap { $0.animal?.id }), browse: request.browse) { animal in
+                    ResidentAnimalPicker(catalog: save.catalog, occupied: Set(save.slots.compactMap { $0.animal?.id }), browse: request.browse) { animal in
                         picker = nil
                         if let slot = request.slot { pendingConfirmation = .replace(slot, animal) }
                         else if let plot = request.plot { pendingConfirmation = .add(plot, animal) }
@@ -105,8 +126,8 @@ struct ResidentManager: View {
             .sheet(isPresented: $showBackups, onDismiss: presentPendingConfirmation) {
                 NavigationStack {
                     List {
-                        if let save = model.document, !save.backups.isEmpty {
-                            ForEach(save.backups) { backup in
+                        if !model.backups.isEmpty {
+                            ForEach(model.backups) { backup in
                                 Button { showBackups = false; pendingConfirmation = .restore(backup) } label: {
                                     VStack(alignment: .leading, spacing: 5) {
                                         Text(backup.date, format: .dateTime.year().month().day().hour().minute().second())
@@ -139,15 +160,23 @@ struct ResidentManager: View {
                             ResidentIslandRow(slot: slot, canDelete: save.count > 2) {
                                 picker = AnimalPickerRequest(slot: slot.id, plot: nil, browse: false)
                             } delete: { confirmation = .remove(slot.id) }
+                              restorePhrase: { confirmation = .phrase(slot.id) }
+                              restoreAddressing: { confirmation = .addressing(slot.id) }
                         }
                     } header: { Text(residentText("On this island")) } footer: {
-                        Text(residentText("Replacement keeps the house, decorations and friendship. Deletion leaves an empty plot. Keep at least two residents."))
+                        Text(residentText("Replacement keeps the house, clothing, gifts and friendship, and resets custom speech. Deletion leaves an empty plot. Keep at least two residents."))
                     }
+                } else if !model.busy {
+                    Section {
+                        Text(residentText(model.backups.isEmpty ? "Start the game and create an island save before using the manager." : "The current save could not be opened. You can restore a complete backup. The current files will be preserved first.")).foregroundStyle(.secondary)
+                    }
+                }
+                if model.document != nil || !model.backups.isEmpty {
                     Section {
                         Button { showBackups = true } label: { Label(residentText("Backups and restore"), systemImage: "clock.arrow.circlepath") }
-                    } footer: { Text(residentText("A full save backup is created before every change. Changes apply when you start the game.")) }
-                } else if !model.busy {
-                    Section { Text(residentText("Start the game and create an island save before using the manager.")).foregroundStyle(.secondary) }
+                    } footer: {
+                        Text(residentText(model.document == nil ? "The current files will be preserved separately before restoring a complete backup." : "A full save backup is created before every change. Changes apply when you start the game."))
+                    }
                 }
                 if let error = model.error { Section { Label(error, systemImage: "exclamationmark.triangle").foregroundStyle(.orange) } }
                 if let message = model.message { Section { Label(message, systemImage: "checkmark.circle.fill").foregroundStyle(.green) } }
@@ -180,23 +209,30 @@ struct ResidentManager: View {
     private func description(_ action: ResidentConfirmation) -> String {
         switch action {
         case .replace(let slot, let animal):
-            return (model.document?.slots[slot].animal?.name ?? "")+" → "+animal.name+"\n"+residentText("The house, decorations and friendship will be kept.")
+            return (model.document?.slots[slot].animal?.name ?? "")+" → "+animal.name+"\n"+residentText("The house, clothing, gifts and friendship will be kept. The catchphrase, player nicknames and custom greetings will reset.")
         case .add(let plot, let animal): return animal.name+" → "+residentText("Plot")+" \(plot+1)"
         case .remove(let slot): return (model.document?.slots[slot].animal?.name ?? "")+"\n"+residentText("This animal will leave the island. The housing plot remains available.")
-        case .restore: return residentText("Restore the entire island, including player progress, to this backup. Your current save will be backed up first.")
+        case .phrase(let slot):
+            let animal = model.document?.slots[slot].animal
+            return (animal?.name ?? "")+" → "+(animal?.phrase ?? "")+"\n"+residentText("Restore this animal's default catchphrase. The house, decorations and friendship will be kept.")
+        case .addressing(let slot):
+            return (model.document?.slots[slot].animal?.name ?? "")+"\n"+residentText("Clear this animal's nicknames and custom greetings for all island players. Its catchphrase, house, gifts and friendship will be kept.")
+        case .restore: return residentText(model.document == nil ? "Restore the entire island, including player progress, to this backup. The unreadable current files will be preserved separately first." : "Restore the entire island, including player progress, to this backup. Your current save will be backed up first.")
         }
     }
     private func apply(_ action: ResidentConfirmation) {
         model.message = nil
-        model.perform { document in
+        if case .restore(let backup) = action { model.restore(backup); return }
+        model.perform(successMessage: residentText("Saved. Start the game to see your changes.")) { document in
             guard let save = document else { throw ResidentError.changed }
             switch action {
             case .replace(let slot, let animal): try save.replace(slot: slot, with: animal); try save.save()
             case .add(let plot, let animal): try save.add(animal, plot: plot); try save.save()
             case .remove(let slot): try save.remove(slot: slot); try save.save()
-            case .restore(let backup): try save.restore(backup)
+            case .phrase(let slot): try save.restoreDefaultPhrase(slot: slot); try save.save()
+            case .addressing(let slot): try save.restoreDefaultAddressing(slot: slot); try save.save()
+            case .restore: throw ResidentError.invalid
             }
-            DispatchQueue.main.async { self.model.message = residentText("Saved. Start the game to see your changes.") }
         }
     }
 }
@@ -237,6 +273,8 @@ private struct ResidentAnimalPicker: View {
                                     Text(animal.name).font(.headline).foregroundStyle(.primary)
                                     Text(residentDetails(animal, english: true))
                                         .font(.footnote).foregroundStyle(.secondary)
+                                    Text(residentText("Default catchphrase")+": "+animal.phrase)
+                                        .font(.footnote).foregroundStyle(.secondary)
                                 }
                                 Spacer()
                                 if occupied.contains(animal.id) { Text(residentText("On island")).font(.caption).foregroundStyle(.secondary) }
@@ -261,6 +299,8 @@ private struct ResidentIslandRow: View {
     let canDelete: Bool
     let replace: () -> Void
     let delete: () -> Void
+    let restorePhrase: () -> Void
+    let restoreAddressing: () -> Void
     var body: some View {
         HStack(spacing: 14) {
             Text("\(slot.id + 1)").font(.headline).monospacedDigit()
@@ -269,11 +309,16 @@ private struct ResidentIslandRow: View {
                 VStack(alignment: .leading, spacing: 5) {
                     Text(animal.name).font(.headline)
                     Text(residentDetails(animal)).font(.subheadline).foregroundStyle(.secondary)
+                    if !slot.phrase.isEmpty {
+                        Text(residentText("Catchphrase")+": "+slot.phrase).font(.caption).foregroundStyle(.secondary)
+                    }
                     if slot.moving { Text(residentText("Moving in progress")).font(.caption).foregroundStyle(.orange) }
                 }
                 Spacer()
                 Menu {
                     Button(action: replace) { Label(residentText("Replace"), systemImage: "arrow.triangle.2.circlepath") }
+                    Button(action: restorePhrase) { Label(residentText("Restore default catchphrase"), systemImage: "text.bubble") }
+                    Button(action: restoreAddressing) { Label(residentText("Reset nicknames and greetings"), systemImage: "bubble.left.and.text.bubble.right") }
                     Button(role: .destructive, action: delete) { Label(residentText("Delete resident"), systemImage: "trash") }
                         .disabled(!canDelete || slot.plot == nil)
                 } label: { Image(systemName: "ellipsis.circle").font(.title2).padding(8) }

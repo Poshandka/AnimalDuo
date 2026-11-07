@@ -52,7 +52,8 @@ void dm_lan_wait_guest(void) {
 int dm_lan_background(int background) {
     pthread_mutex_lock(&lan.lock);
     int supported = lan.running && wait_supported_locked();
-    if (lan.wait.local_background != !!background) {
+    int changed = lan.wait.local_background != !!background, role = lan.state;
+    if (changed) {
         lan.wait.local_background = !!background; lan.wait.local_seq++;
         if (background && supported) {
             lan.wait.local_pending = 1; lan.wait.pending_deadline = lan_ms() + 3000;
@@ -60,6 +61,9 @@ int dm_lan_background(int background) {
         }
     }
     pthread_mutex_unlock(&lan.lock);
+    if (changed && (role == DM_LDN_HOST || role == DM_LDN_CONNECTED))
+        LOG("ldn: app %s, role %d, coordinated wait %s", background ? "background" : "foreground", role,
+            supported ? "supported" : "unavailable");
     wait_apply(); wake_worker(); return supported;
 }
 void dm_lan_wait_cancel(void) {

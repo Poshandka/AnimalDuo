@@ -5,15 +5,43 @@
 #include <stdatomic.h>
 static int enabled = 1;
 static _Atomic int waiting;
+static _Atomic int freeze_on_native_wait;
+static pthread_mutex_t clock_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t clock_changed = PTHREAD_COND_INITIALIZER;
+static uint64_t clock_lag, clock_frozen;
+static int clock_held;
 uint64_t now_ns(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec * 1000000000ull + t.tv_nsec; }
+uint64_t guest_ns(void) {
+    pthread_mutex_lock(&clock_lock);
+    uint64_t n = clock_held ? clock_frozen : now_ns() - clock_lag;
+    pthread_mutex_unlock(&clock_lock); return n;
+}
+static void hold_clock(int on) {
+    pthread_mutex_lock(&clock_lock);
+    if (on && !clock_held) clock_frozen = now_ns() - clock_lag;
+    if (!on && clock_held) clock_lag = now_ns() - clock_frozen;
+    clock_held = on; pthread_cond_broadcast(&clock_changed);
+    pthread_mutex_unlock(&clock_lock);
+}
 int dm_lan_enabled(void) { return enabled; }
-void dm_lan_wait_guest(void) {}
+void dm_lan_wait_guest(void) {
+    pthread_mutex_lock(&clock_lock);
+    while (clock_held) pthread_cond_wait(&clock_changed, &clock_lock);
+    pthread_mutex_unlock(&clock_lock);
+}
 uint32_t dm_lan_ip(void) { return htonl(INADDR_LOOPBACK); }
 uint32_t dm_lan_mask(void) { return htonl(0xff000000); }
 int dm_lan_peer(uint32_t ip) { return ip == dm_lan_ip(); }
 int dm_lan_peers(uint32_t *ips, int n) { if (n) ips[0] = dm_lan_ip(); return !!n; }
 int dm_lan_broadcast(uint32_t ip) { return ip == INADDR_BROADCAST; }
-void dm_thread_native_wait(int on) { if (on) waiting++; else waiting--; }
+void dm_thread_native_wait(int on) {
+    if (on) {
+        // Freeze at the worker's first native wait, after its deadline exists.
+        // A busy test runner cannot consume the timeout before the test pauses it.
+        if (atomic_exchange(&freeze_on_native_wait, 0)) hold_clock(1);
+        waiting++;
+    } else waiting--;
+}
 void dm_guest_sleep_ns(int64_t ns) { struct timespec t = {ns / 1000000000, ns % 1000000000}; nanosleep(&t, NULL); }
 static struct sockaddr_in local(unsigned port) {
     return (struct sockaddr_in){.sin_len = 16, .sin_family = AF_INET, .sin_port = htons(port), .sin_addr.s_addr = dm_lan_ip()};
@@ -25,6 +53,35 @@ static void *wait_receive(void *arg) {
 }
 static void *thread_errno(void *unused) {
     (void)unused; assert(dm_sk_close(999) == -1 && dm_sk_errno == EBADF); return NULL;
+}
+typedef struct { int fd, poll, result, error; char value; _Atomic int done; } paused_read;
+static void *read_across_pause(void *arg) {
+    paused_read *r = arg;
+    if (r->poll) {
+        sk_pollfd f = {r->fd, POLLIN, 0};
+        r->result = dm_sk_poll(&f, 1, 150);
+        if (r->result == 1) assert(f.revents & POLLIN);
+    } else r->result = (int)dm_sk_recv(r->fd, &r->value, 1, 0, NULL, NULL);
+    r->error = dm_sk_errno; atomic_store(&r->done, 1); return NULL;
+}
+static void paused_deadline_tests(int fd, struct sockaddr_in a) {
+    int64_t timeout[2] = {0, 150000}; unsigned size = sizeof timeout;
+    assert(!dm_sk_option(fd, SOL_SOCKET, SO_RCVTIMEO, timeout, &size, 1));
+    for (int poll = 0; poll < 2; poll++) {
+        paused_read result = {.fd = fd, .poll = poll}; pthread_t thread;
+        atomic_store(&freeze_on_native_wait, 1);
+        assert(!pthread_create(&thread, NULL, read_across_pause, &result));
+        for (int i = 0; i < 1000 && !waiting; i++) usleep(1000);
+        assert(waiting && !atomic_load(&freeze_on_native_wait));
+        // Exceed the entire active timeout while the peer's guest is paused.
+        usleep(300000); assert(!atomic_load(&result.done));
+        assert(sendto(sockets[fd].fd, "p", 1, 0, (void *)&a, sizeof a) == 1);
+        hold_clock(0); pthread_join(thread, NULL);
+        assert(result.result == 1 && (poll || result.value == 'p'));
+        if (poll) { char value; assert(dm_sk_recv(fd, &value, 1, 0, NULL, NULL) == 1 && value == 'p'); }
+        assert(!waiting);
+    }
+    puts("BSD sockets: in-flight receive and poll retain active deadlines across a guest pause PASS");
 }
 int main(void) {
     enabled = 0; assert(dm_sk_socket(AF_INET, SOCK_DGRAM, 0) == -1 && dm_sk_errno == 100);
@@ -68,6 +125,7 @@ int main(void) {
     memset(timeout, 0, sizeof timeout); assert(!dm_sk_option(fd, SOL_SOCKET, SO_RCVTIMEO, timeout, &size, 0) && timeout[1] == 25000);
     assert(!dm_sk_fcntl(fd, 4, 0)); uint64_t start = sk_ms();
     assert(dm_sk_recv(fd, buf, sizeof buf, 0, NULL, NULL) == -1 && dm_sk_errno == 11 && sk_ms() - start >= 20);
+    paused_deadline_tests(fd, a = local(ntohs(source.sin_port)));
     timeout[1] = 0; assert(!dm_sk_option(fd, SOL_SOCKET, SO_RCVTIMEO, timeout, &size, 1));
     assert(!pthread_create(&thread, NULL, wait_receive, &fd));
     for (int i = 0; i < 100 && !waiting; i++) usleep(1000); assert(waiting);

@@ -87,6 +87,7 @@ static const CGFloat
     K_STICK_GRAB = 1.4,                             // how near the ring centre a touch-down grabs a stick (times the ring radius)
     K_FULL = 0.8,                                   // full tilt at this fraction of the ring radius (the knob still travels to the ring edge)
     K_DEAD = 0.1,                                   // stick dead zone (times the ring radius)
+    K_WALK_TILT = 0.35,                             // analog tilt at the outer edge of the left stick's slow-walk zone
     // controls only the 3D layout has
     K_LOW_X = 231, K_LOW_Y = 64,                    // D-pad centre from the outer edge and the bottom (inward of and below the left stick, as on a Pro Controller)
     K_DPAD_R = 48, K_ARM_W = 17, K_ARM_IN = 11,     // D-pad: arm outer edge from the centre, half-width, tip from the centre
@@ -116,6 +117,10 @@ int dm_opmode(void);   // hle_oe.c: 0 = handheld
 static __weak DmGamepad *g_view;
 void front_native_ui_context(unsigned context);
 int front_controls_full_canvas(void);
+
+double dm_touch_default_slow_walk_radius(double deadZone) {
+    return deadZone + (K_FULL - deadZone) * K_WALK_TILT;
+}
 
 @implementation DmGamepad {
     NSMapTable<UITouch *, NSNumber *> *_owner;     // touch → control (with the key for C_BTN or the stick for C_STICK, << 8)
@@ -374,10 +379,24 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); 
         else if (c == C_DPAD) dpad |= [self dpadAt:[t locationInView:self]];
         else if (c == C_SWAP) swap = YES; }
     int32_t ax[4] = {0};
+    CGFloat deadZone = [self customNumber:@"deadZone" fallback:K_DEAD low:0 high:.3];
     for (int i = 0; i < 2; i++) {
-        CGPoint o = [self stickOffset:i]; CGFloat R = [self stickR:i], d = hypot(o.x, o.y), dz = R * [self customNumber:@"deadZone" fallback:K_DEAD low:0 high:.3];
+        CGPoint o = [self stickOffset:i]; CGFloat R = [self stickR:i], d = hypot(o.x, o.y), dz = R * deadZone;
         if (d <= dz) continue;
-        CGFloat m = fmin((d - dz) / (R * K_FULL - dz), 1) / d;   // outside the dead zone: 0 rising to full at the full-tilt radius
+        CGFloat full = R * K_FULL;
+        CGFloat tilt = fmin((d - dz) / (full - dz), 1);
+        if (i == 0 && tilt < 1) {
+            CGFloat original = dm_touch_default_slow_walk_radius(deadZone);
+            CGFloat fraction = [self customNumber:@"slowWalkRadius" fallback:original
+                                               low:fmax(.20, deadZone + .05) high:.70];
+            if (fraction != original) {
+                // Both ramps meet at the slow-walk boundary. Direction and full tilt stay intact.
+                CGFloat walk = R * fraction;
+                if (d <= walk) tilt = K_WALK_TILT * (d - dz) / (walk - dz);
+                else tilt = K_WALK_TILT + (1 - K_WALK_TILT) * (d - walk) / (full - walk);
+            }
+        }
+        CGFloat m = tilt / d;
         ax[i * 2] = (int32_t)lrint(o.x * m * 32767); ax[i * 2 + 1] = (int32_t)lrint(-o.y * m * 32767);   // host: up is positive; rounded so full tilt is exactly 32767
     }
     BOOL changed = face != _faceBits || dpad != _dpadBits || btn != _btnBits || swap != _swapHeld;

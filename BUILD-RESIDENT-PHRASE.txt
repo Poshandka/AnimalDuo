@@ -1,0 +1,28 @@
+AnimalDuo resident catchphrase follow-up
+Application build: 3.0.62
+Game version: 3.0.3
+Project release: 1.1 (the published v1.1 tag remains application 3.0.59)
+
+This source includes the preceding 3.0.60/3.0.61 local-play fixes and repairs
+resident replacement/addition catchphrases. The save's phrase field contains
+eleven localized char16[22] strings. The old writer used the English entry for
+Chinese text, leaving the active Chinese phrase unchanged.
+
+Regenerate the optional resident catalog from your own full 3.0.3 RomFS using
+scripts/build_acnh_resident_catalog.py. It now includes eleven defaults per animal
+and retains all existing identity, template and license requirements. Generated
+catalogs and templates are external game inputs and are excluded from this source.
+
+The manager can display current/default phrases and restore an existing animal's
+default through its menu. Changes still require confirmation and create complete
+save backups. Loading the manager alone does not modify a save. Houses, gifts,
+story origins and all eight player memory blocks are retained.
+
+The unsigned iPad/iPhone update replaces the executable, bundle version and small
+resident catalog; it reuses the same installed bulk resource set. Install it with
+the same signing identity and bundle identifier as the existing app to keep that
+app's data container. It is not a first-install resource package.
+
+See dm/games/01006F8002326000/README.md for the root cause, exact format evidence
+and local validation. Device copies, saves, generated catalogs, game binaries,
+runtime captures, signing material and private paths are not included here.

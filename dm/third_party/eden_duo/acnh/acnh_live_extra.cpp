@@ -111,13 +111,11 @@ void ExtraReader::Sample(const Guest& g, const LiveSnapshot& s, const Need& need
     // ----
     out.houses_ok = false;
     if (need.map && !(dead & XSave)) {
-        uint64_t mgr = 0, set = 0, obj = 0, vt = 0, slot2 = 0, data = 0;
-        uint8_t alt = 0;
-        uint32_t ver[2] = {};
-        if (q(save_mgr, mgr) && g.Get(mgr + 0x453, alt) && q(mgr + 0x10, set) &&
-            q((alt & 1) ? set + 0x130 : set, obj) && q(obj, vt) && q(vt + 0x10, slot2) &&
-            slot2 == main_base + XPinSaveSlotData.offset && q(obj + 0x10, data) &&
-            g.Read(data, ver, sizeof ver) && ver[0] == 0xA0002u && ver[1] == 0xA0028u) {
+        uint64_t mgr = 0, set = 0;
+        const uint64_t data = s.main_dat;
+        // The main reader validates both the full save and a visitor's Land-only
+        // object. Share its origin and bounds instead of reinterpreting the buffer.
+        if (s.save_ok && data && q(save_mgr, mgr) && q(mgr + 0x10, set)) {
             const uint64_t now = NowMs();
             if (houses_source != data) {
                 houses_source = data;
@@ -127,7 +125,7 @@ void ExtraReader::Sample(const Guest& g, const LiveSnapshot& s, const Need& need
             if (out.npc_houses.size() != 0xBD10 || now - houses_ms > 2000) {
                 auto& h = houses_buf;
                 h.resize(0xBD10);
-                houses_read_ok = g.Read(data + 0x481D20, h.data(), h.size());
+                houses_read_ok = g.Read(s.IslandField(0x481D20, h.size()), h.data(), h.size());
                 if (houses_read_ok) {
                     if (h != out.npc_houses) {
                         out.npc_houses.swap(h);
@@ -140,7 +138,7 @@ void ExtraReader::Sample(const Guest& g, const LiveSnapshot& s, const Need& need
             const auto land = [&](int uid) {
                 uint16_t v = 0;
                 return uid >= 0 && uid < 640 &&
-                               g.Get(data + 0x22ED00 + static_cast<uint64_t>(uid) * 2, v)
+                               g.Get(s.IslandField(0x22ED00 + static_cast<uint32_t>(uid) * 2, sizeof v), v)
                            ? int{v}
                            : -1;
             };
@@ -157,7 +155,7 @@ void ExtraReader::Sample(const Guest& g, const LiveSnapshot& s, const Need& need
             const bool have_slots = g.Read(mgr + 0x90, slots, sizeof slots);
             for (int k = 0; k < 8; ++k) {
                 uint8_t acc[0x48];
-                if (!g.Read(data + 0x1e34c0 + 0x48u * k, acc, sizeof acc))
+                if (!g.Read(s.IslandField(0x1e34c0 + 0x48u * k, sizeof acc), acc, sizeof acc))
                     continue;
                 bool any = false;
                 for (int b = 0; b < 16; ++b)
@@ -186,10 +184,10 @@ void ExtraReader::Sample(const Guest& g, const LiveSnapshot& s, const Need& need
                 out.players.push_back(std::move(pl));
             }
             int32_t lv = 0;
-            out.shop_level_map = g.Get(data + 0x48DA30, lv) ? lv : -1;
-            out.tailor_level = g.Get(data + 0x48DA5C, lv) ? lv : -1;
-            out.museum_level = g.Get(data + 0x491220, lv) ? lv : -1;
-            out.camp_level = g.Get(data + 0x575CA8, lv) ? lv : -1;
+            out.shop_level_map = g.Get(s.IslandField(0x48DA30, sizeof lv), lv) ? lv : -1;
+            out.tailor_level = g.Get(s.IslandField(0x48DA5C, sizeof lv), lv) ? lv : -1;
+            out.museum_level = g.Get(s.IslandField(0x491220, sizeof lv), lv) ? lv : -1;
+            out.camp_level = g.Get(s.IslandField(0x575CA8, sizeof lv), lv) ? lv : -1;
         }
     }
 
@@ -197,13 +195,11 @@ void ExtraReader::Sample(const Guest& g, const LiveSnapshot& s, const Need& need
     out.visitors_ok = false;
     out.visitors.clear();
     if (need.today && !(dead & XVisit) && s.clock_ok) {
-        uint64_t mgr = 0, set = 0, obj = 0, vt = 0, slot7 = 0, tree = 0;
-        uint8_t alt = 0;
+        uint64_t mgr = 0, set = 0;
+        const uint64_t tree = s.island_tree;
         // SaveMgr: obj = mgr+0x453 bit0 ? [set+0x130] : [set]; tree = [obj+0x20] (vtable slot 7,
         // "ldr x0,[x0,#0x20]" pinned by the main reader); handles at tree+0x70+h = {base, off}
-        bool ok = q(save_mgr, mgr) && g.Get(mgr + 0x453, alt) && q(mgr + 0x10, set) &&
-                  q((alt & 1) ? set + 0x130 : set, obj) && q(obj, vt) && q(vt + 0x38, slot7) &&
-                  slot7 == main_base + XPinSaveSlotTree.offset && q(obj + 0x20, tree);
+        bool ok = s.save_ok && tree && q(save_mgr, mgr) && q(mgr + 0x10, set);
         const auto handle = [&](uint64_t h, uint64_t& at) {
             uint64_t a = 0, b = 0;
             if (!q(tree + 0x70 + h, a) || !q(tree + 0x70 + h + 8, b))
@@ -234,16 +230,14 @@ void ExtraReader::Sample(const Guest& g, const LiveSnapshot& s, const Need& need
         bool kk = ok && flag_kk_count >= 0 && flag_kk_count < 0x800 && handle(0x205208, temp) &&
                   g.Read(flags, out.kk_land.data(), out.kk_land.size() * 2) &&
                   g.Read(temp, out.kk_temp.data(), out.kk_temp.size() * 2);
-        uint64_t vt2 = 0, slot2 = 0, data = 0;
+        const uint64_t data = s.main_dat;
         uint32_t slots[16] = {};
-        kk = kk && q(obj, vt2) && q(vt2 + 0x10, slot2) &&
-             slot2 == main_base + XPinSaveSlotData.offset && q(obj + 0x10, data) &&
-             g.Read(mgr + 0x90, slots, sizeof slots);
+        kk = kk && data && g.Read(mgr + 0x90, slots, sizeof slots);
         // the handles must land where the file layout says (live check of the offsets, else closed)
-        kk = kk && flags == data + 0x22ED00 && temp == data + 0x5785A0;
+        kk = kk && flags == s.IslandField(0x22ED00) && temp == s.IslandField(0x5785A0);
         for (int k = 0; kk && k < 8; ++k) {
             uint8_t uid[16];
-            if (!g.Read(data + 0x1e34c0 + 0x48u * k, uid, sizeof uid)) {
+            if (!g.Read(s.IslandField(0x1e34c0 + 0x48u * k, sizeof uid), uid, sizeof uid)) {
                 kk = false;
                 break;
             }

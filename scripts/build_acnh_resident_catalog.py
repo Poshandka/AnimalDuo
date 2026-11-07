@@ -17,6 +17,9 @@ import zlib
 
 SPECIES: Sequence[str] = 'ant bea brd bul cat cbr chn cow crd der dog duk elp flg goa gor ham hip hrs kal kgr lon mnk mus ocp ost pbr pgn pig rbt rhn shp squ tig wol'.split()
 PERSONALITIES = ['Boy_normal', 'Boy_active', 'Boy_pride', 'Boy_snobby', 'Girl_normal', 'Girl_active', 'Girl_pride', 'Girl_big_sis']
+# S00 localized phrases: eleven char16[22] entries, not fourteen message folders.
+# English, Spanish and French share their respective save slots across regions.
+PHRASE_LOCALES = ('JPja', 'USen', 'USes', 'USfr', 'EUde', 'EUit', 'EUnl', 'EUru', 'KRko', 'CNzh', 'TWzh')
 
 
 def decompress(path):
@@ -90,7 +93,8 @@ def build(romfs, templates=None):
     en = decompress(romfs / 'Message/String_USen.sarc.zs')
     names = msbt(sarc_member(cn, 'Npc/STR_NNpcName.msbt'))
     english = msbt(sarc_member(en, 'Npc/STR_NNpcName.msbt'))
-    phrases = msbt(sarc_member(cn, 'Npc/STR_NNpcPhrase.msbt'))
+    phrases = [msbt(sarc_member(decompress(romfs / f'Message/String_{locale}.sarc.zs'), 'Npc/STR_NNpcPhrase.msbt'))
+               for locale in PHRASE_LOCALES]
     raw = (romfs / 'Bcsv/NmlNpcParam.bcsv').read_bytes()
     n, stride, fields = struct.unpack_from('<IIH', raw)
     if n != 417 or stride != 0x120 or raw[12:16] != b'VSCB':
@@ -107,7 +111,11 @@ def build(romfs, templates=None):
         species = SPECIES.index(internal[:3])
         variant = int(internal[3:])
         temperament = types[struct.unpack_from('<I', raw, at+personality)[0]]
-        animal = dict(id=internal, name=names[internal], english=english[internal], phrase=phrases[internal],
+        localized_phrases = [p[internal] for p in phrases]
+        if any(not p or len(p.encode('utf-16-le')) > 42 for p in localized_phrases):
+            raise ValueError(f'incompatible localized phrase: {internal}')
+        animal = dict(id=internal, name=names[internal], english=english[internal], phrase=localized_phrases[9],
+                      phrases=localized_phrases,
                       species=species, variant=variant, personality=temperament)
         if templates is not None:
             v = (Path(templates)/'Villagers'/f'{internal}V.bin').read_bytes()

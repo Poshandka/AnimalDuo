@@ -1,9 +1,9 @@
 {
-  "project_version": "1.1",
-  "application_build": "3.0.59",
+  "project_version": "1.2",
+  "application_build": "3.0.68",
   "game_version": "3.0.3",
-  "source_scope": "Frozen 3.0.59 source plus post-release CI compatibility, deterministic test and Python type fixes.",
-  "production_files_identical_to_frozen_release": 211,
+  "source_scope": "AnimalDuo 1.2 includes the hosted CI fixes after 1.1, LAN recovery and visitor companion content, resident speech and save safety, backup recovery, and the left-stick slow-walk radius.",
+  "production_files_identical_to_frozen_release": 203,
   "publication_python_checks_passed": 22,
   "publication_lan_interface_and_lifecycle_check": "PASS",
   "private_local_paths_found": 0,
@@ -15,14 +15,16 @@
   "upstream_copyright_and_component_licenses_retained": true,
   "new_physical_device_or_game_performance_results": false,
   "intentional_production_source_changes": [
-    {
-      "path": "dm/ios/Sources/front_ios.m",
-      "change": "Compile the optional hinge observer only when its SDK header is available."
-    },
-    {
-      "path": "scripts/build_acnh_resident_catalog.py",
-      "change": "Retain integer field types for template validation; generated catalog output is identical."
-    }
+    "dm/host/hle_ldn.c",
+    "dm/host/hle_socket.c",
+    "dm/host/ldn_wait.inc",
+    "dm/ios/Sources/ACNHResidents.swift",
+    "dm/ios/Sources/DmGamepad.m",
+    "dm/ios/Sources/ResidentManager.swift",
+    "dm/ios/Sources/TouchControls.swift",
+    "dm/ios/Sources/TouchControlsBridge.h",
+    "dm/ios/Sources/front_ios.m",
+    "scripts/build_acnh_resident_catalog.py"
   ],
   "ci_fix_local_checks": {
     "date": "2026-11-06",
@@ -50,5 +52,736 @@
       "scope": "Same-Mac source comparison; busy host, no performance claim."
     },
     "hosted_results": "See the commit-specific GitHub Actions runs."
+  },
+  "source_baseline_commit": "dd1c035e86712d2e2774c4d46c1a59c995354d92",
+  "production_comparison_scope": "Same host, graphics, iOS and build-tool selection as the 1.1 publication audit; companion changes listed separately.",
+  "intentional_companion_source_changes": [
+    "dm/third_party/eden_duo/acnh/acnh_live.cpp",
+    "dm/third_party/eden_duo/acnh/acnh_live.h",
+    "dm/third_party/eden_duo/acnh/acnh_live_extra.cpp",
+    "dm/third_party/eden_duo/acnh/acnh_live_pins.inc"
+  ],
+  "lan_recovery_checks": {
+    "host_unit_suite": "PASS",
+    "new_player_and_save_layout_suite": "PASS",
+    "native_wait_backend_cases": 10,
+    "actual_game_companion_pages": 6,
+    "actual_game_suspension_cases_seconds": [
+      15,
+      15,
+      35
+    ],
+    "actual_game_companion_after_each_resume": "PASS",
+    "native_wait_limits_seconds": [
+      30,
+      60
+    ],
+    "ios_tool_tests": 42,
+    "tool_tests": 310,
+    "tool_optional_skips": 16,
+    "gfx_suite": "PASS",
+    "documentation_links_and_symptom_index": "PASS",
+    "ruff_and_pyright": "379 existing, 0 new, 0 obsolete baseline entries",
+    "unsigned_generic_arm64_ios_build": "PASS",
+    "fresh_save_regression": {
+      "status": "PASS",
+      "seconds_per_revision": 90,
+      "scope": "Same-Mac ACNH; busy host, no performance claim."
+    },
+    "physical_devices_tested": false,
+    "hosted_checks_for_these_uncommitted_changes": "Not run; hosted green status belongs to baseline dd1c035 only."
+  },
+  "lan_short_return_checks": {
+    "device_log_diagnosis": "Bonjour -65569 after a successful native pause/resume; no device app installed by the agent",
+    "defunct_callback_counterexample": "Fails before the fix; preserves active/paused/synchronizing host and visitor state afterward",
+    "fresh_discovery_cache_counterexample": "Fails before the cache fix; passes afterward",
+    "root_fix_real_game_processes": 2,
+    "root_fix_real_game_four_second_cases": 4,
+    "root_fix_actual_host_registration_faults_injected": 2,
+    "root_fix_game_runtime_sha256": "12eb34d5726ad29db9f4ef2772bd816168ef1f9b9846d4c5cbb08d788d4d5f27",
+    "final_scan_cache_runtime_sha256": "028593839d569c6d6e9162398dc39318c0f1e1f4dda1fa0f6c9a8fad75a1f3fc",
+    "scope_note": "The game flight/four-second returns cover the root discovery fix before the final cache increment; final native host, discovery, UDP/TCP, rejoin and startup checks cover that cache increment. SDK fault injection and Mac-local discovery isolation are test-only.",
+    "final_native_four_second_fault_cases": "PASS",
+    "final_authenticated_data_and_rejoin_both_roles": "PASS",
+    "host_unit_suite": "PASS",
+    "new_player_and_save_layout_suite": "PASS",
+    "native_wait_backend_cases": 10,
+    "actual_game_companion_pages": 6,
+    "actual_game_suspension_cases_seconds": [
+      4,
+      4,
+      4,
+      4
+    ],
+    "actual_game_companion_after_each_resume": "PASS",
+    "native_wait_limits_seconds": [
+      30,
+      60
+    ],
+    "ios_tool_tests": 42,
+    "tool_tests": 310,
+    "tool_optional_skips": 16,
+    "gfx_suite": "PASS",
+    "documentation_links_and_symptom_index": "PASS",
+    "ruff_and_pyright": "379 existing, 0 new, 0 obsolete baseline entries",
+    "unsigned_generic_arm64_ios_build": "PASS",
+    "fresh_save_regression": {
+      "status": "PASS",
+      "seconds_per_revision": 90,
+      "scope": "Same-Mac ACNH versus exact delivered 3.0.60, reusing the matching 90-second baseline for the final cache increment; busy host, no performance claim."
+    },
+    "physical_devices_tested": false,
+    "hosted_checks_for_these_uncommitted_changes": "Not run; hosted green status belongs to baseline dd1c035 only."
+  },
+  "resident_catchphrase_checks": {
+    "cause": "The old NHSE convenience accessor addresses English slot 1; Chinese uses slot 9 of eleven char16[22] entries.",
+    "format_evidence": "Own 3.0.3 S00 Smmh and exact main language accessors; extracted data not included.",
+    "catalog_animals": 417,
+    "localized_defaults": 4587,
+    "all_template_payloads_unchanged": true,
+    "old_writer_counterexamples": 2,
+    "candidate_replacements_verified_after_encrypted_reload": 2,
+    "all_eleven_phrases_independently_verified": true,
+    "NHSE_save_hash_validation": "Zero invalid hashes",
+    "current_island_reset_copy": "PASS; identity, all player memories and unrelated bytes retained; original backup verified",
+    "synthetic_coverage": "Eight personalities, all eleven languages, stale suffixes, complete UTF-16 strings, legacy catalogs, malformed catalogs, reset persistence/backups and unrelated-byte preservation",
+    "native_dialogue": {
+      "status": "PASS",
+      "animals": [
+        "squ17",
+        "wol12"
+      ],
+      "actual_game_greetings_use_correct_Chinese_defaults": true,
+      "actual_game_save_all_eleven_defaults_retained": true,
+      "independent_save_invalid_hashes": 0,
+      "cold_process_restart": true,
+      "both_greetings_correct_after_restart": true,
+      "inputs": "Ordinary controller input; read-only scene/actor observer; no guest-memory writes",
+      "runtime_sha256": "028593839d569c6d6e9162398dc39318c0f1e1f4dda1fa0f6c9a8fad75a1f3fc",
+      "native_runtime_source": "Byte-identical host/graphics/companion to delivered 3.0.61; saves edited with the current Swift engine",
+      "physical_devices_tested": false,
+      "owned_processes_stopped": true
+    },
+    "native_core": "Byte-identical to delivered 3.0.61; editor and generated catalog are the changed components.",
+    "ios_tool_tests": 42,
+    "tool_tests": 310,
+    "tool_optional_skips": 16,
+    "gfx_suite": "PASS",
+    "documentation_checks": 4,
+    "ruff_and_pyright": "379 existing findings; 0 new and 0 obsolete baseline entries",
+    "unsigned_ios_build": "Generic arm64, iOS 26 minimum, SDK 27.2",
+    "startup_regression": {
+      "status": "PASS",
+      "baseline": "Exact delivered 3.0.61 source and unchanged native core",
+      "scope": "Local Mac startup and shader comparison; no performance improvement claimed."
+    },
+    "physical_devices_tested": false,
+    "device_access": "Read-only save copies; no device app signed or installed.",
+    "github_modified": false
+  },
+  "resident_state_audit_checks": {
+    "catalog_choices": 417,
+    "localized_phrases": 4587,
+    "source_target_personality_pairs": 64,
+    "local_memories_per_resident": 8,
+    "visitor_memories_per_resident": 160,
+    "format_evidence": "Own 3.0.3 S00 and EventFlagsNpcMemoryParam; no extracted data included.",
+    "reset_scopes": "Phrase-only and addressing-only operations preserve each other; identities, friendship, dates outside greeting state, gifts, clothing, houses, origin and story state remain intact.",
+    "rejected_edits": [
+      "current animal",
+      "nonzero move type",
+      "queued ForceMoveOut",
+      "secondary house occupant"
+    ],
+    "template_audit": "417 donor primary acquaintances sanitized on addition; zero populated visitor identities; nickname/greeting/date defaults zero in all 417 templates.",
+    "native_state": {
+      "status": "PASS",
+      "target": "wol12",
+      "old_game_uses_old_nickname": true,
+      "new_game_dialogue_contains_no_legacy_marker": true,
+      "actual_game_save_nickname_greetings_and_all_168_speech_markers_clean": true,
+      "independent_NHSE_invalid_hashes": 0,
+      "friendship_preserved_by_editor": 200,
+      "native_runtime": "Byte-identical to delivered 3.0.61/3.0.62; disk edits use the current Swift engine",
+      "runtime_sha256": "028593839d569c6d6e9162398dc39318c0f1e1f4dda1fa0f6c9a8fad75a1f3fc",
+      "ordinary_controller_input": true,
+      "read_only_scene_actor_observer": true,
+      "guest_memory_writes": false,
+      "physical_devices_tested": false,
+      "owned_process_stopped": true
+    },
+    "reset_integrity": {
+      "status": "PASS",
+      "scopes": [
+        "addressing only",
+        "complete speech through both explicit operations"
+      ],
+      "identities_friendship_and_unrelated_bytes_files_retained": true,
+      "original_complete_backup_verified": true,
+      "encrypted_reload": true,
+      "independent_NHSE_invalid_hashes": 0
+    },
+    "all_catalog_choices": {
+      "all_168_memories_speech_flags_reset": true,
+      "animals": 417,
+      "encrypted_reload": true,
+      "localized_phrases": 4587,
+      "status": "PASS",
+      "unrelated_bytes_preserved": true
+    },
+    "ios_tool_tests": 42,
+    "tool_tests": 310,
+    "tool_optional_skips": 16,
+    "gfx_suite": "PASS",
+    "documentation_checks": 4,
+    "ruff_and_pyright": "379 existing findings; zero new or obsolete entries",
+    "unsigned_iOS": "Generic arm64; minimum iOS 26, SDK 27.2; matching persistent resources retained",
+    "startup_regression": {
+      "status": "PASS",
+      "baseline": "Exact delivered 3.0.62 source; unchanged native runtime and shaders",
+      "scope": "Local full startup; no performance improvement claimed."
+    },
+    "physical_devices_tested": false,
+    "device_access_this_task": "No device writes, signing or installation; existing read-only copies used.",
+    "github_modified": false
+  },
+  "resident_lifecycle_checks": {
+    "format_evidence": "Own 3.0.3 S00 and resident order-key pin; pinned NHSE MainSaveOffsets30 and GSaveTime. Extracted data excluded.",
+    "arrival_date": "NPC+0x12674 uses the validated calendar from last saved GSaveTime at 0x97d670; replacement preserves its date and origins.",
+    "pending_move_templates": [
+      "ant05",
+      "pbr10"
+    ],
+    "pending_move_fix": "Only the newly committed furnished-house resident receives MoveType=0; existing pending moves remain protected.",
+    "old_and_new_counterexamples": {
+      "status": "PASS",
+      "old_writer": {
+        "arrival": {
+          "last_saved_date": "2026-10-28",
+          "matches_checkpoint": false,
+          "new_arrival_date": "2020-05-05"
+        },
+        "personal": {
+          "personal_only_change_refused": false
+        }
+      },
+      "candidate": {
+        "arrival": {
+          "last_saved_date": "2026-10-28",
+          "matches_checkpoint": true,
+          "new_arrival_date": "2026-10-28"
+        },
+        "personal": {
+          "personal_only_change_refused": true
+        }
+      }
+    },
+    "copy_completion_faults": {
+      "status": "PASS",
+      "method": "Test-only NSFileManager copy completion fault; no production hooks",
+      "cases": [
+        {
+          "active_checkpoint_unchanged": false,
+          "copied_file_corruption_refused": false,
+          "operation": "backup",
+          "engine": "before"
+        },
+        {
+          "active_checkpoint_unchanged": false,
+          "copied_file_corruption_refused": false,
+          "operation": "restore",
+          "engine": "before"
+        },
+        {
+          "active_checkpoint_unchanged": true,
+          "copied_file_corruption_refused": true,
+          "operation": "backup",
+          "engine": "after"
+        },
+        {
+          "active_checkpoint_unchanged": true,
+          "copied_file_corruption_refused": true,
+          "operation": "restore",
+          "engine": "after"
+        }
+      ]
+    },
+    "all_catalog_additions": {
+      "status": "PASS",
+      "animals": 417,
+      "localized_defaults": 4587,
+      "island_dates_correct": true,
+      "other_residents_and_player_progress_retained": true,
+      "all_168_speech_marker_sets_clean": true,
+      "original_backup_verified": true,
+      "encrypted_reload": true
+    },
+    "full_roster_lifecycle": "Six repeated deletion/addition cycles after reopening all ten slots; encrypted reload and unrelated-byte checks pass.",
+    "stale_personal_files": "Modification, addition and deletion each reject save and restore without changing the active checkpoint.",
+    "calendar_cases": "Past/future saved timelines and leap day accepted; zero and invalid dates refuse addition before any memory change.",
+    "native_game": {
+      "status": "PASS",
+      "target": "wol12",
+      "furnished_house_entered": true,
+      "first_meeting_dialogue_nonempty": true,
+      "ordinary_game_save_committed": true,
+      "arrival_date_retained": "2026-10-28",
+      "saved_island_calendar": "2026-11-07",
+      "all_eleven_default_phrases_retained": true,
+      "donor_nicknames_greetings_and_speech_markers_absent": true,
+      "current_local_player_identity_retained": true,
+      "NHSE_invalid_hashes": 0,
+      "ordinary_controller_input": true,
+      "observer_read_only": true,
+      "guest_memory_writes": false,
+      "physical_devices_tested": false,
+      "owned_process_stopped": true,
+      "input_byte_identical_to_final_editor": true
+    },
+    "native_source": {
+      "status": "PASS",
+      "baseline": "Exact delivered 3.0.63 source",
+      "native_core_changed": false,
+      "source_comparison": [],
+      "runtime_sha256": "028593839d569c6d6e9162398dc39318c0f1e1f4dda1fa0f6c9a8fad75a1f3fc"
+    },
+    "ios_tool_tests": 42,
+    "tool_tests": 310,
+    "tool_optional_skips": 16,
+    "documentation_checks": 4,
+    "gfx_suite": "PASS",
+    "ruff_and_pyright": "379 existing findings; zero new or obsolete entries",
+    "unsigned_ios": "Generic arm64; minimum iOS 26, SDK 27.2; same installed resource requirements",
+    "startup_regression": {
+      "status": "PASS",
+      "baseline": "Exact delivered 3.0.63 source; unchanged native runtime and shaders",
+      "scope": "Local full startup; no performance improvement claimed."
+    },
+    "physical_devices_tested": false,
+    "github_modified": false,
+    "device_access_this_task": "Disposable local copies only; no physical device app signed or installed."
+  },
+  "resident_safety_checks": {
+    "format_evidence": "Own 3.0.3 S00 and pinned NHSE VillagerHouse1 NPC1/NPC2 fields; no extracted data included.",
+    "housing_guards": "Scan all ten houses for secondary references; addition and empty-template selection exclude both primary and secondary reservations.",
+    "housing_cases": "27 different-house references, both reservation fields, no free NPC slots despite a free physical plot, reserved record preservation and all-ten NPC/plot permutation.",
+    "committed_counterexample": {
+      "old": {
+        "moving_detected": false,
+        "remove_refused": false,
+        "dangling_reference": true
+      },
+      "new": {
+        "moving_detected": true,
+        "remove_refused": true,
+        "dangling_reference": false
+      }
+    },
+    "local_measurements": {
+      "status": "PASS",
+      "house_before": {
+        "moving_detected": false,
+        "remove_refused": false,
+        "dangling_reference": true
+      },
+      "house_after": {
+        "moving_detected": true,
+        "remove_refused": true,
+        "dangling_reference": false
+      },
+      "retained_memory": {
+        "before_bytes": [
+          {
+            "retained_allocation_delta": 23203328,
+            "resident_count": 3
+          },
+          {
+            "retained_allocation_delta": 23203328,
+            "resident_count": 3
+          },
+          {
+            "retained_allocation_delta": 23203328,
+            "resident_count": 3
+          },
+          {
+            "retained_allocation_delta": 23203328,
+            "resident_count": 3
+          },
+          {
+            "retained_allocation_delta": 23203328,
+            "resident_count": 3
+          }
+        ],
+        "after_bytes": [
+          {
+            "retained_allocation_delta": 13028784,
+            "resident_count": 3
+          },
+          {
+            "retained_allocation_delta": 13028784,
+            "resident_count": 3
+          },
+          {
+            "retained_allocation_delta": 13028784,
+            "resident_count": 3
+          },
+          {
+            "retained_allocation_delta": 13028784,
+            "resident_count": 3
+          },
+          {
+            "retained_allocation_delta": 13028784,
+            "resident_count": 3
+          }
+        ],
+        "median_reduction_bytes": 10174544,
+        "scope": "Single manager document; malloc size in use after autorelease-pool drain; not running-game RSS"
+      },
+      "metadata_snapshot": {
+        "before": {
+          "backup_count": 600,
+          "main_thread_reads": 20,
+          "elapsed_ms": 219.8120355606079
+        },
+        "after": {
+          "backup_count": 600,
+          "main_thread_reads": 20,
+          "elapsed_ms": 0.003933906555175781
+        },
+        "scope": "600 metadata fixtures; 20 main-thread reads; same real model; no game FPS claim"
+      }
+    },
+    "normal_catalog_equivalence": {
+      "status": "PASS",
+      "animals": 417,
+      "localized_defaults": 4587,
+      "all_417_intermediate_states_identical_to_3_0_64": true,
+      "final_encrypted_save_identical": true,
+      "other_player_files_identical": true,
+      "all_168_speech_marker_sets_clean": true
+    },
+    "independent_saved_data": {
+      "status": "PASS",
+      "invalid_hashes": 0,
+      "valid_sizes": true,
+      "engine": "Pinned NHSE reader"
+    },
+    "copy_fault_replay": {
+      "status": "PASS",
+      "cases": [
+        {
+          "active_checkpoint_unchanged": true,
+          "copied_file_corruption_refused": true,
+          "operation": "backup"
+        },
+        {
+          "active_checkpoint_unchanged": true,
+          "copied_file_corruption_refused": true,
+          "operation": "restore"
+        }
+      ],
+      "production_hooks": false
+    },
+    "manager_model": "Actual asynchronous model passes edit/restore/failure publication, stable cached render reads, corrupt reload metadata clearing and valid reload recovery.",
+    "native_source": {
+      "status": "PASS",
+      "baseline": "Exact delivered 3.0.64",
+      "native_core_changed": false,
+      "runtime_sha256": "028593839d569c6d6e9162398dc39318c0f1e1f4dda1fa0f6c9a8fad75a1f3fc"
+    },
+    "ios_tool_tests": 43,
+    "tool_tests": 310,
+    "tool_optional_skips": 16,
+    "documentation_checks": 4,
+    "gfx_suite": "PASS",
+    "ruff_and_pyright": "379 existing findings; zero new or obsolete entries, including the new Python test through a private Git index",
+    "unsigned_ios": "Generic arm64; minimum iOS 26, SDK 27.2; same installed resource requirements",
+    "startup_regression": {
+      "status": "PASS",
+      "baseline": "Exact delivered 3.0.64 source; unchanged native runtime and shaders",
+      "scope": "Local full startup; no running-game memory or FPS improvement claimed."
+    },
+    "physical_devices_tested": false,
+    "github_modified": false,
+    "device_access_this_task": "Disposable local copies only; no physical device app signed or installed."
+  },
+  "resident_recovery_checks": {
+    "root_cause": "Backup browsing and restore previously required a successfully parsed current resident document.",
+    "architecture": "A separate whole-file storage checkpoint survives a failed current-format read; editing still requires the unchanged strict 3.0.3 reader.",
+    "real_save_counterexample": {
+      "status": "PASS",
+      "before": {
+        "damaged_document_readable": false,
+        "visible_backups": 0,
+        "restored_exact_main": false,
+        "reloaded_document_valid": false,
+        "error": true
+      },
+      "after": {
+        "damaged_document_readable": false,
+        "visible_backups": 1,
+        "restored_exact_main": true,
+        "reloaded_document_valid": true,
+        "error": false
+      }
+    },
+    "unreadable_current_cases": [
+      "damaged main",
+      "truncated main",
+      "missing main",
+      "missing header",
+      "truncated header",
+      "unsupported current revision",
+      "missing pair",
+      "unknown resident with valid hashes",
+      "pre-existing root metadata",
+      "empty current directory"
+    ],
+    "preservation": "Unreadable current payloads and their original metadata are copied and checked separately under Unverified; neither the reserved container nor its children is a selectable restore point.",
+    "backup_validation": "Selected inventory, version, size and main integrity/identity checks remain mandatory; raw-source fingerprints, copied payloads and restore stages are checked before atomic swap.",
+    "negative_cases": "Invalid selected inventory/hash/version; later personal-file changes; explicit retry against a fresh checkpoint; path/pending-write guards; no success on failed post-operation reload.",
+    "fault_and_exit_cases": {
+      "status": "PASS",
+      "method": "Test-only copy and swap faults in owned processes; no production hooks",
+      "cases": [
+        {
+          "case": "preserve",
+          "status": "PASS",
+          "exit": 0,
+          "active_is_complete_good_backup": false,
+          "active_unchanged_on_failure_or_precommit_exit": true,
+          "original_unreadable_payload_preserved": false,
+          "current_reader_valid": false
+        },
+        {
+          "case": "metadata",
+          "status": "PASS",
+          "exit": 0,
+          "active_is_complete_good_backup": false,
+          "active_unchanged_on_failure_or_precommit_exit": true,
+          "original_unreadable_payload_preserved": false,
+          "current_reader_valid": false
+        },
+        {
+          "case": "restore",
+          "status": "PASS",
+          "exit": 0,
+          "active_is_complete_good_backup": false,
+          "active_unchanged_on_failure_or_precommit_exit": true,
+          "original_unreadable_payload_preserved": true,
+          "current_reader_valid": false
+        },
+        {
+          "case": "swap",
+          "status": "PASS",
+          "exit": 0,
+          "active_is_complete_good_backup": false,
+          "active_unchanged_on_failure_or_precommit_exit": true,
+          "original_unreadable_payload_preserved": true,
+          "current_reader_valid": false
+        },
+        {
+          "case": "after-preserve",
+          "status": "PASS",
+          "exit": 86,
+          "active_is_complete_good_backup": false,
+          "active_unchanged_on_failure_or_precommit_exit": true,
+          "original_unreadable_payload_preserved": true,
+          "current_reader_valid": false
+        },
+        {
+          "case": "after-swap",
+          "status": "PASS",
+          "exit": 87,
+          "active_is_complete_good_backup": true,
+          "active_unchanged_on_failure_or_precommit_exit": false,
+          "original_unreadable_payload_preserved": true,
+          "current_reader_valid": true
+        }
+      ]
+    },
+    "normal_catalog_equivalence": {
+      "status": "PASS",
+      "animals": 417,
+      "localized_defaults": 4587,
+      "all_417_intermediate_states_identical_to_3_0_65": true,
+      "final_encrypted_save_identical": true,
+      "other_player_files_identical": true
+    },
+    "independent_save_reader": {
+      "status": "PASS",
+      "engine": "Pinned NHSE reader",
+      "cases": [
+        {
+          "case": "normal-final",
+          "invalid_hashes": 0,
+          "valid_sizes": true
+        },
+        {
+          "case": "after",
+          "invalid_hashes": 0,
+          "valid_sizes": true
+        },
+        {
+          "case": "fault-final-after-swap",
+          "invalid_hashes": 0,
+          "valid_sizes": true
+        }
+      ]
+    },
+    "success_publication": "Only after both operation and following reload succeed; failure clears stale success.",
+    "native_source": {
+      "status": "PASS",
+      "baseline": "Exact delivered 3.0.65 source",
+      "native_core_changed": false,
+      "runtime_sha256": "028593839d569c6d6e9162398dc39318c0f1e1f4dda1fa0f6c9a8fad75a1f3fc"
+    },
+    "ios_tool_tests": 44,
+    "tool_tests": 310,
+    "tool_optional_skips": 16,
+    "documentation_checks": 4,
+    "gfx_suite": "PASS",
+    "ruff_and_pyright": "379 existing findings; zero new or obsolete entries, including new Python tests through a private Git index",
+    "unsigned_ios": "Generic arm64; minimum iOS 26, SDK 27.2; existing bulk resource requirements retained",
+    "startup_regression": {
+      "status": "PASS",
+      "baseline": "Exact delivered 3.0.65 source; unchanged native runtime and shaders",
+      "scope": "Local full startup; no running-game performance improvement claimed."
+    },
+    "physical_devices_tested": false,
+    "github_modified": false,
+    "device_access_this_task": "Disposable local copies only; no physical device app signed or installed."
+  },
+  "stick_size_checks": {
+    "profile": "The moving left and right stick discs scale from 60% to 140% of their default radius. Existing profiles use 100%. The landscape and portrait values are saved separately.",
+    "mac_catalyst_pad": {
+      "status": "PASS",
+      "surface_shapes": 4,
+      "left_and_right_disc_paths": true,
+      "independent_profile_reload": true,
+      "outer_rings_and_centers_stable": true,
+      "hid_axes_stable": true,
+      "portrait_discs_stay_in_outer_ring": true,
+      "preview_profile_updates_publish_input": false
+    },
+    "native_source": {
+      "status": "PASS",
+      "baseline": "Exact delivered 3.0.66 source",
+      "matching_files": {
+        "dm/host": 131,
+        "dm/gfx": 246,
+        "dm/third_party/eden_duo/acnh": 76
+      }
+    },
+    "ios_tool_tests": 44,
+    "tool_tests": 310,
+    "tool_optional_skips": 16,
+    "documentation_checks": 4,
+    "gfx_suite": "PASS",
+    "ruff_and_pyright": "379 existing findings with zero new or obsolete entries",
+    "unsigned_ios": "Generic arm64 built with SDK 27.2 for iOS 26 and newer. Reuses the installed bulk resources.",
+    "startup_regression": {
+      "status": "PASS",
+      "baseline": "Exact delivered 3.0.66 source with unchanged native runtime and shaders",
+      "scope": "Local full startup using isolated Mac wrappers"
+    },
+    "physical_devices_tested": false,
+    "github_modified": false
+  },
+  "slow_walk_checks": {
+    "profile": "The editor stores a left stick radius for each orientation. Earlier profiles open with the original linear response. The minimum radius follows the dead zone and the maximum is 70% of the outer ring.",
+    "mac_catalyst_pad": {
+      "cases": [
+        {
+          "portrait": false,
+          "outer": false,
+          "original_half_radius_tilt": 0.5714286,
+          "expanded_half_radius_tilt": 0.2800073
+        },
+        {
+          "portrait": false,
+          "outer": true,
+          "original_half_radius_tilt": 0.5714286,
+          "expanded_half_radius_tilt": 0.2800073
+        },
+        {
+          "portrait": true,
+          "outer": false,
+          "original_half_radius_tilt": 0.5714286,
+          "expanded_half_radius_tilt": 0.2800073
+        },
+        {
+          "portrait": true,
+          "outer": false,
+          "original_half_radius_tilt": 0.5714286,
+          "expanded_half_radius_tilt": 0.2800073
+        }
+      ],
+      "status": "PASS",
+      "orientation_reload": true,
+      "dead_zone_clamp": true,
+      "monotonic_analog_response": true,
+      "cardinal_and_diagonal": true,
+      "full_tilt": true,
+      "release_and_cancel": true,
+      "right_stick_linear": true
+    },
+    "actual_game_replay": {
+      "status": "PASS",
+      "scope": "Local game replay of production touch axes on a disposable island",
+      "travel_fraction": 0.5,
+      "expanded_radius": 0.6,
+      "analog_tilt": {
+        "original": 0.5714286,
+        "expanded": 0.2800073
+      },
+      "world_units_per_second": {
+        "original_half_radius": 12.0,
+        "expanded_half_radius": 6.11,
+        "expanded_boundary": 6.02,
+        "expanded_full_tilt": 34.5
+      },
+      "four_trials_per_point": true
+    },
+    "native_source": {
+      "status": "PASS",
+      "baseline": "Exact delivered 3.0.67 source",
+      "matching_files": {
+        "dm/host": 131,
+        "dm/gfx": 246,
+        "dm/third_party/eden_duo/acnh": 76
+      }
+    },
+    "ios_tool_tests": 44,
+    "tool_tests": 310,
+    "tool_optional_skips": 16,
+    "documentation_checks": 4,
+    "gfx_suite": "PASS",
+    "ruff_and_pyright": "379 existing findings with zero new or obsolete entries",
+    "unsigned_ios": "Generic arm64 built with SDK 27.2 for iOS 26 and newer. Reuses the installed bulk resources.",
+    "startup_regression": {
+      "status": "PASS",
+      "baseline": "Exact delivered 3.0.67 source",
+      "scope": "Local full startup using isolated Mac wrappers"
+    },
+    "physical_devices_tested": false,
+    "github_modified": false
+  },
+  "release_1_2_preflight": {
+    "public_main_parent": "dd1c035e86712d2e2774c4d46c1a59c995354d92",
+    "delivered_source_archive_sha256": "768182d531112da1e65f7363a40e723950375679c32d4722375d7c5be35e68aa",
+    "source_file_count": 1471,
+    "runtime_and_build_tools": "Byte-for-byte with the delivered 3.0.68 corresponding source",
+    "host_unit_suite": "PASS",
+    "synthetic_unsigned_ios_build": "PASS",
+    "ios_source_files_compiled": 194,
+    "mac_m1_macos_27_0_host_build": "PASS",
+    "ios_unit_tests": 44,
+    "tool_tests": 310,
+    "optional_tool_test_skips": 16,
+    "documentation_checks": 4,
+    "python_lint": "379 pre-existing findings with zero new or obsolete entries",
+    "delivered_3_0_68_startup_and_metal": "PASS",
+    "physical_cross_device_lan_acceptance": "Pending"
   }
 }

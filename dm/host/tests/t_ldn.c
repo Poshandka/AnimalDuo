@@ -17,6 +17,7 @@ static void fixture_freeifaddrs(struct ifaddrs *all) {
 #include <assert.h>
 __thread _Atomic int dm_host_work;
 static _Atomic unsigned frozen_reasons;
+uint64_t guest_ns(void) { return lan_ms() * 1000000; }
 void guest_clock_freeze_for(int reason, int on) {
     if (on) atomic_fetch_or(&frozen_reasons, 1u << reason);
     else atomic_fetch_and(&frozen_reasons, ~(1u << reason));
@@ -32,6 +33,53 @@ static dm_ldn_security security = {.size = 16, .passphrase = "local-test-key-1"}
 static dm_ldn_user user = {.name = "LAN test"};
 static void pause_ms(int n) { usleep(n * 1000); }
 static void begin(const char *ip);
+static void discovery_failure_tests(void) {
+    // iOS can invalidate the mDNS daemon connection across a short background
+    // visit. Discovery failure is not evidence that an authenticated peer left.
+    for (int host_role = 0; host_role < 2; host_role++) for (int phase = 0; phase <= 2; phase++) {
+        memset(&lan.info, 0, sizeof lan.info); memset(&lan.wait, 0, sizeof lan.wait);
+        lan.running = 1; lan.state = host_role ? DM_LDN_HOST : DM_LDN_CONNECTED;
+        lan.info.capacity = lan.info.count = 2;
+        lan.info.nodes[0].connected = lan.info.nodes[1].connected = 1;
+        lan.wait.capabilities = 3; lan.wait.phase = phase;
+        lan.wait.away = phase == 1 ? 2 : 0; lan.wait.token = 73;
+        lan.wait.deadline = lan_ms() + 30000;
+        uint64_t deadline = lan.wait.deadline;
+        wait_apply();
+        if (host_role) publish_reply(NULL, 0, kDNSServiceErr_DefunctConnection, NULL, NULL, NULL, NULL);
+        else browse_reply(NULL, 0, 0, kDNSServiceErr_DefunctConnection, NULL, NULL, NULL, NULL);
+        assert(lan.state == (host_role ? DM_LDN_HOST : DM_LDN_CONNECTED));
+        assert(lan.info.count == 2 && lan.wait.phase == phase && lan.wait.token == 73);
+        assert(lan.wait.deadline == deadline && atomic_load(&wait_gate) == !!phase);
+    }
+    // Real initial discovery failures and permission denials still surface.
+    for (int error = 0; error < 2; error++) {
+        lan.state = error ? DM_LDN_HOST : DM_LDN_STATION;
+        discovery_failed(error ? kDNSServiceErr_PolicyDenied : kDNSServiceErr_DefunctConnection);
+        assert(lan.state == DM_LDN_ERROR && !atomic_load(&wait_gate));
+    }
+    lan.running = 0; lan.state = DM_LDN_NONE;
+    memset(&lan.info, 0, sizeof lan.info); memset(&lan.wait, 0, sizeof lan.wait);
+    wait_apply();
+    puts("LDN Bonjour: defunct discovery retains active membership, pause tokens and deadlines; initial errors and policy denial remain failures PASS");
+}
+static void discovery_cache_test(void) {
+    // A fresh scan must not return an endpoint cached before discovery stopped.
+    // Run explicitly with the native Bonjour backend, outside the CI-only suite.
+    begin("127.0.0.1"); assert(!dm_ldn_open(0));
+    dm_ldn_filter filter = {.id.intent = config.intent, .flags = 1 | 32};
+    filter.id.intent.scene = 0x7ffe;
+    pthread_mutex_lock(&lan.lock);
+    lan.rooms[0].used = lan.rooms[0].valid = 1;
+    lan.rooms[0].info.id.intent = filter.id.intent;
+    lan.rooms[0].info.capacity = lan.rooms[0].info.count = 1;
+    lan.rooms[0].info.nodes[0].connected = 1;
+    lan.rooms[0].info.nodes[0].ip = ntohl(inet_addr("127.0.0.9"));
+    pthread_mutex_unlock(&lan.lock);
+    dm_ldn_info rooms[8]; int count = 0;
+    assert(!dm_ldn_scan(rooms, &count, 8, &filter, 0, 0) && count == 0);
+    dm_ldn_finalize(); puts("LDN Bonjour: fresh scanning discards dormant endpoint cache PASS");
+}
 static _Atomic int lifecycle_stop;
 static void *lifecycle_notifications(void *unused) {
     (void)unused;
@@ -109,17 +157,24 @@ static int wait_endpoint(int is_host, const char *ip, const char *status, const 
             processed++;
             if (!strcmp(line, "background\n")) dm_lan_background(1);
             else if (!strcmp(line, "foreground\n")) dm_lan_background(0);
+            else if (!strcmp(line, "defunct\n")) {
+                if (is_host) publish_reply(NULL, 0, kDNSServiceErr_DefunctConnection, NULL, NULL, NULL, NULL);
+                else browse_reply(NULL, 0, 0, kDNSServiceErr_DefunctConnection, NULL, NULL, NULL, NULL);
+            }
             else if (!strcmp(line, "cancel\n")) dm_lan_wait_cancel();
             else if (!strcmp(line, "legacy\n")) { pthread_mutex_lock(&lan.lock); lan.wait.capabilities = 1; changed_locked(); pthread_mutex_unlock(&lan.lock); wake_worker(); }
             else if (!strcmp(line, "quit\n")) quit = 1;
             else assert(!"unknown wait test command");
         }
         dm_lan_wait_info info; dm_lan_wait_snapshot(&info);
+        pthread_mutex_lock(&lan.lock);
+        int browsing = lan.browse; uint64_t discovery_epoch = lan.discovery_epoch;
+        pthread_mutex_unlock(&lan.lock);
         char temporary[1024]; snprintf(temporary, sizeof temporary, "%s.new", status);
         FILE *out = fopen(temporary, "w"); assert(out);
-        fprintf(out, "{\"state\":%d,\"wait\":%d,\"seconds\":%d,\"supported\":%d,\"background\":%d,\"frozen\":%u,\"work\":%u,\"commands\":%u}\n",
+        fprintf(out, "{\"state\":%d,\"wait\":%d,\"seconds\":%d,\"supported\":%d,\"background\":%d,\"frozen\":%u,\"work\":%u,\"commands\":%u,\"browsing\":%d,\"discovery_epoch\":%llu}\n",
                 dm_ldn_state(), info.state, info.seconds, info.supported, info.local_background,
-                atomic_load(&frozen_reasons), atomic_load(&wait_probe_work), processed);
+                atomic_load(&frozen_reasons), atomic_load(&wait_probe_work), processed, browsing, (unsigned long long)discovery_epoch);
         fclose(out); assert(!rename(temporary, status)); pause_ms(20);
     }
     fclose(commands); atomic_store(&wait_probe_stop, 1); dm_ldn_finalize(); pthread_join(probe, NULL);
@@ -292,9 +347,11 @@ int main(int argc, char **argv) {
     if (argc == 5 && (!strcmp(argv[1], "wait-host") || !strcmp(argv[1], "wait-client")))
         return wait_endpoint(!strcmp(argv[1], "wait-host"), argv[2], argv[3], argv[4]);
     if (argc == 2 && !strcmp(argv[1], "interfaces")) return interface_tests();
+    if (argc == 2 && !strcmp(argv[1], "discovery")) { discovery_failure_tests(); return 0; }
+    if (argc == 2 && !strcmp(argv[1], "discovery-cache")) { discovery_cache_test(); return 0; }
     if (argc == 4 && !strcmp(argv[1], "host")) return host(argv[2], argv[3]);
     if (argc == 3 && !strcmp(argv[1], "client")) return client(argv[2]);
-    wait_state_tests();
+    discovery_failure_tests(); wait_state_tests();
     if (interface_tests()) return 1;
     state_tests(); lifecycle_tests(); return 0;
 }

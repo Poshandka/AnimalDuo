@@ -6,8 +6,19 @@ inline const Pin PinSaveMgr{"SaveMgr", 0x6e19d8, {0xf0026c88, 0x91010108, 0xf940
 inline const Pin PinSaveSlotData{"SaveSlotData", 0x260bd28, {0xf9400800, 0xd65f03c0}};
 // save object vtable slot 7: ldr x0,[x0,#0x20]; ret (field handle tree)
 inline const Pin PinSaveSlotTree{"SaveSlotTree", 0x260bd50, {0xf9401000, 0xd65f03c0}};
+// The visitor's alternate save object contains a Land-only buffer, without the
+// GSaveMain prefix. Exact data/end/tree accessors retain the same object layout.
+inline const Pin PinVisitSaveData{"VisitSaveData", 0x2625c18, {0xf9400800, 0xd65f03c0}};
+inline const Pin PinVisitSaveEnd{"VisitSaveEnd", 0x2625c28, {0xf9400c00, 0xd65f03c0}};
+inline const Pin PinVisitSaveTree{"VisitSaveTree", 0x2625c40, {0xf9401000, 0xd65f03c0}};
 // personal data of player id: slots mgr+0x90+i*8 {id,valid}, set+0x60+i*8 -> obj+0x10
 inline const Pin PinGetPersonal{"GetPersonal", 0x25f9208, {0x29522009, 0x7100051f, 0x7a410120, 0x54000120, 0xb9409c08, 0x7100051f, 0x54000221, 0xb9409808, 0x6b01011f, 0x540001c1, 0x52800028, 0x14000002, 0xaa1f03e8, 0xf9400809, 0xb40000c9, 0x8b080d28, 0xf9403108, 0xb4000088, 0xf9400900, 0xd65f03c0}};
+// Visiting changes the network player number. The game's resolved player-index
+// cache selects a 0x13f0 record; only a valid home-resident record (kind 0) maps
+// through +0x13d5 to GetPersonal's resident number. No other player's data is used.
+inline const Pin PinVisitPlayerMap{"VisitPlayerMap", 0x2482db4, {0x90017c08, 0x90013196, 0xf940d115, 0xf943ead6}};
+inline const Pin PinVisitPlayerIndex{"VisitPlayerIndex", 0x2482ec0, {0xb8747aa0, 0x36f80380}};
+inline const Pin PinVisitPersonal{"VisitPersonal", 0x2483388, {0xb0013188, 0x52827e09, 0xf947dd08, 0x52827a8a, 0xf9400108, 0x9ba92009, 0x386a6929, 0x34000929, 0x2a0003e9, 0x52827e0a, 0x9baa212b, 0xb001318c, 0xb953d16a, 0xb940016b, 0xf943598c, 0xf9400180, 0x7100095f, 0x7a479962, 0xfa409804, 0x540007a0, 0x7100095f, 0x540004e0, 0x350005aa, 0x52827e0a, 0x9baa2128, 0x52827aa9, 0x38696901, 0x71001c3f, 0x54000688, 0xa9444ff4, 0xa94357f6, 0xa9427bfd, 0x910143ff, 0x1405ae56}};
 // local player number: override byte, session +0x473/+0x48/+0x471, else byte
 inline const Pin PinLocalPlayerNo{"LocalPlayerNo", 0x679ad4, {0xb00268a8, 0x91050108, 0x39400109, 0x7100213f, 0x54000383, 0x90026028, 0x91156108, 0xf9400108, 0xb40002c8, 0xf9400109, 0x900221e8, 0x3991cd2a, 0xf9401d08, 0xb100055f, 0x54000140, 0x9101212b, 0x92407d4c, 0x8b0c1d6c, 0x7100215f, 0x9111c529, 0x9a8b318a, 0xb940014a, 0x721d015f, 0x9a890108, 0x39400108, 0x52801fe9, 0x7100211f, 0x1a893108, 0x390023e8, 0x54000103, 0xb00268a8, 0x9105a108, 0x39400108, 0x52801fe9, 0x7100211f, 0x1a893108, 0x390023e8}};
 // TimeMgr singleton, CalendarTime at +0x4060
@@ -30,6 +41,9 @@ inline const Pin PinActorList{"ActorList", 0x838c4c, {0xd0021e08, 0x9138c108, 0x
 inline const Pin PinActorListComp{"ActorListComp", 0x8387b0, {0x9001ff95, 0x913482b5, 0xf9000015, 0xaa0003f3, 0x910a4014, 0x97f73523, 0xb9426268, 0xf9013e74}};
 // PlayerActor vtable slot 2: returns "PlayerActor"
 inline const Pin PinPlayerActorName{"PlayerActorName", 0x2229a54, {0xf000ec00, 0x9109c400, 0xd65f03c0}};
+// PlayerActor local-number byte: this+0x18f6+0x5f2 = +0x1ee8,
+// validated as 0..7 before passing its address to the player-data accessor.
+inline const Pin PinPlayerActorNo{"PlayerActorNo", 0x220e4f4, {0x52831ec8, 0xaa0203f5, 0xaa0103f4, 0x8b080018, 0x3957cb08, 0xaa0003f3, 0x9117cb16, 0x71001d1f, 0x54000068, 0xaa1603e0, 0x940d0421}};
 // player action state machine: [actor+0x70]+0x278
 inline const Pin PinPlayerSm{"PlayerSm", 0x2287068, {0xf0014149, 0xf9403808, 0xaa0003f3, 0xf9401129, 0x910003e2, 0x2a1f03e1, 0x9109e100}};
 // camera component: camera object at +0x298

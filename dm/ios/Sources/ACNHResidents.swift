@@ -1,6 +1,7 @@
 // ACNH 3.0.3 resident save editor. No game process is running while this is open.
 // Format facts: kwsch/NHSE (MainSaveOffsets30, Villager2, VillagerHouse2,
-// FileHashRevision, Encryption). AES-CTR is supplied by CommonCrypto; Murmur3
+// FileHashRevision, Encryption), with localized phrase layout verified against
+// this game's S00 Smmh and language accessors. AES-CTR uses CommonCrypto; Murmur3
 // and xor128 below implement the published algorithms. Catalog names/attributes
 // come from the user's RomFS. Optional NHSE resident/house templates are packaged
 // separately under GPL-3.0, with their license and source supplied with the build.
@@ -14,6 +15,7 @@ struct ResidentAnimal: Codable, Identifiable, Equatable {
     let id, name, english, phrase: String
     let species, variant, personality: Int
     var template: String? = nil
+    var phrases: [String]? = nil
 }
 
 struct ResidentCatalog: Codable {
@@ -25,9 +27,17 @@ struct ResidentCatalog: Codable {
         let c = try JSONDecoder().decode(Self.self, from: Data(contentsOf: url))
         guard c.schema == "nxnative-acnh-residents/2", c.version == "3.0.3", c.animals.count == 417,
               Set(c.animals.map(\.id)).count == c.animals.count,
-              c.animals.allSatisfy({ (0..<35).contains($0.species) && (0..<256).contains($0.variant) && (0..<8).contains($0.personality) })
+              c.animals.allSatisfy({ animal in
+                  (0..<35).contains(animal.species) && (0..<256).contains(animal.variant) && (0..<8).contains(animal.personality) &&
+                  validPhrase(animal.phrase) && (animal.phrases.map {
+                      $0.count == 11 && $0.allSatisfy(validPhrase) && $0[9] == animal.phrase
+                  } ?? true)
+              })
         else { throw ResidentError.catalog }
         return c
+    }
+    private static func validPhrase(_ phrase: String) -> Bool {
+        !phrase.isEmpty && phrase.utf16.count <= 21 && phrase.unicodeScalars.allSatisfy { $0.value >= 32 }
     }
 }
 
@@ -53,6 +63,7 @@ struct ResidentSlot: Identifiable {
     let animal: ResidentAnimal?
     let plot: Int?
     let moving: Bool
+    let phrase: String
 }
 
 private extension Data {
@@ -122,7 +133,17 @@ final class ResidentSave {
     // All writes are gated by the exact save version and length, independently of
     // the catalog. An updated game must be investigated before this gate changes.
     static let fileSize = 0x9b0e90, npcBase = 0x120, npcSize = 0x13230
+    // S00: localized phrase array has eleven char16[22] strings. CNzh is slot 9;
+    // the older NHSE CatchPhrase accessor addresses English (slot 1) only.
+    static let phraseBase = 0x10768, phraseSize = 0x2c, phraseCount = 11, chinesePhrase = 9
+    // S00 GSaveMemory: player identity, event flags, nickname, eleven greetings,
+    // greeting date and other relationship state. Only speech fields reset.
+    static let memoryBase = 4, memorySize = 0x5f0, memoryCount = 8
+    static let lightMemoryBase = 0x2f84, lightMemorySize = 0x158, lightMemoryCount = 160
     static let houseBase = 0x481d20, houseSize = 0x12e8, buildingBase = 0x32f700
+    // S00 GSaveLandOther's GSaveTime, also MainSaveOffsets30.LastSavedTime.
+    // Offline additions belong to the island's timeline, not the template donor.
+    static let lastSavedTime = 0x97d670, arrivalDate = 0x12674
     static let hashes: [(Int, Int)] = [
         (0x110,0x1e339c),(0x1e34b0,0x3d089c),(0x5b3e60,0x37acc),(0x5eb930,0x3ce5c),
         (0x6288a0,0x37acc),(0x660370,0x3ce5c),(0x69d2e0,0x37acc),(0x6d4db0,0x3ce5c),
@@ -132,16 +153,21 @@ final class ResidentSave {
     let folder: URL
     let catalog: ResidentCatalog
     private(set) var plain: Data
-    private let header, original: Data
+    private let header: Data
+    private let storage: ResidentSaveStorage
     private let lookup: [String: ResidentAnimal]
     private var emptyTemplate: Data?
     private let prefixes = ["ant","bea","brd","bul","cat","cbr","chn","cow","crd","der","dog","duk","elp","flg","goa","gor","ham","hip","hrs","kal","kgr","lon","mnk","mus","ocp","ost","pbr","pgn","pig","rbt","rhn","shp","squ","tig","wol"]
 
-    init(folder: URL, catalog: ResidentCatalog) throws {
-        try Self.safeTree(folder)
-        self.folder = folder.resolvingSymlinksInPath(); self.catalog = catalog; lookup = catalog.byID
+    convenience init(folder: URL, catalog: ResidentCatalog) throws {
+        try self.init(storage: ResidentSaveStorage(folder: folder), catalog: catalog)
+    }
+    init(storage: ResidentSaveStorage, catalog: ResidentCatalog) throws {
+        self.storage = storage; folder = storage.folder; self.catalog = catalog; lookup = catalog.byID
         header = try Data(contentsOf: folder.appendingPathComponent("mainHeader.dat"))
-        original = try Data(contentsOf: folder.appendingPathComponent("main.dat"))
+        let original = try Data(contentsOf: folder.appendingPathComponent("main.dat"))
+        guard storage.checkpoint["main.dat"] == ResidentSaveStorage.digest(original),
+              storage.checkpoint["mainHeader.dat"] == ResidentSaveStorage.digest(header) else { throw ResidentError.changed }
         guard header.count == 0x300, original.count == Self.fileSize,
               header.word(0) == 0xa0002, header.word(4) == 0xa0028,
               header.half(8) == 2, header.half(10) == 0, header.half(12) == 2, header.half(14) == 34
@@ -149,12 +175,14 @@ final class ResidentSave {
         plain = try ResidentCipher.transform(original, header: header)
         guard plain.prefix(0x100) == header.prefix(0x100) else { throw ResidentError.damaged }
         try Self.checkHashes(plain)
+        let reserved = housingReservations
         for i in 0..<10 {
             let a = Self.npcBase+i*Self.npcSize
-            if plain[a] == 35 { emptyTemplate = plain.subdata(in: a..<a+Self.npcSize); break }
+            if plain[a] == 35 && !reserved.contains(i) { emptyTemplate = plain.subdata(in: a..<a+Self.npcSize); break }
         }
         guard slots.allSatisfy({ plain[Self.npcBase+$0.id*Self.npcSize] == 35 || $0.animal != nil }) else { throw ResidentError.damaged }
         guard Set(slots.compactMap { $0.animal?.id }).count == count else { throw ResidentError.damaged }
+        try storage.assertUnchanged()
     }
 
     static func checkHashes(_ data: Data) throws {
@@ -174,10 +202,27 @@ final class ResidentSave {
     private func placed(_ index: Int) -> Bool {
         (0..<46).contains { plain.half(Self.buildingBase+$0*20) == index+9 }
     }
+    private var housingReservations: Set<Int> {
+        // NPC1 and NPC2 both refer to NPC slots, independently of the plot index.
+        // A pending tenant can be recorded by a house other than its current one.
+        Set((0..<10).flatMap { plot in
+            let h = Self.houseBase+plot*Self.houseSize
+            return [Int(plain[h+0x1c4]), Int(plain[h+0x1c5])].filter { $0 < 10 }
+        })
+    }
     var slots: [ResidentSlot] {
         (0..<10).map { i in
             let a = Self.npcBase+i*Self.npcSize
-            return ResidentSlot(id: i, animal: animal(i), plot: house(i), moving: plain[a+0x1267a] != 0)
+            let at = a+Self.phraseBase+Self.chinesePhrase*Self.phraseSize
+            let words = (0..<(Self.phraseSize/2)).map { UInt16(plain.half(at+2*$0)) }
+            let plot = house(i)
+            let pendingHouse = (0..<10).contains { house in
+                let h = Self.houseBase+house*Self.houseSize
+                return plain[h+0x1c5] == i || (plain[h+0x1c4] == i && plain[h+0x1c5] != 255)
+            }
+            let pendingMove = plain[a+0x1267a] != 0 || plain.half(a+0x1267c+24*2) != 0 || pendingHouse
+            return ResidentSlot(id: i, animal: animal(i), plot: plot, moving: pendingMove,
+                                phrase: String(decoding: words.prefix(while: { $0 != 0 }), as: UTF16.self))
         }
     }
     var vacantPlots: [Int] {
@@ -186,31 +231,86 @@ final class ResidentSave {
             return placed(i) && plain[h+0x1c4] == 255 && plain[h+0x1c5] == 255 && plain.word(h+4) == 0
         }
     }
-    private func valid(_ target: ResidentAnimal, excluding slot: Int? = nil) throws {
+    private func valid(_ target: ResidentAnimal) throws {
         guard lookup[target.id] == target else { throw ResidentError.invalid }
-        if slots.contains(where: { $0.id != slot && $0.animal?.id == target.id }) { throw ResidentError.duplicate }
+        if slots.contains(where: { $0.animal?.id == target.id }) { throw ResidentError.duplicate }
     }
     private func setIdentity(_ animal: ResidentAnimal, at a: Int) {
         plain[a] = UInt8(animal.species); plain[a+1] = UInt8(animal.variant); plain[a+2] = UInt8(animal.personality)
-        // Keep the house, gifts and memories when replacing. Reset a custom phrase
-        // to the selected animal's actual localized default from this game's MSBT.
-        let phrase = Array(animal.phrase.utf16.prefix(11)) + [0]
-        for i in 0..<24 { plain[a+0x10794+i] = 0 }
-        for (i,c) in phrase.enumerated() { plain[a+0x10794+2*i] = UInt8(truncatingIfNeeded: c); plain[a+0x10795+2*i] = UInt8(c >> 8) }
-        plain[a+0x1267c+8*2] = 0; plain[a+0x1267c+10*2] = 0
+        setDefaultPhrase(animal, at: a)
+        setDefaultAddressing(at: a)
+    }
+    private func setDefaultPhrase(_ animal: ResidentAnimal, at a: Int) {
+        // Reset phrase text and its player-authorship markers, retaining the
+        // house, gifts and relationships. Missing translations in legacy
+        // CNzh-only catalogs remain uninitialized, as in a fresh game's array.
+        let phrases = animal.phrases ?? (0..<Self.phraseCount).map { $0 == Self.chinesePhrase ? animal.phrase : "" }
+        let start = a+Self.phraseBase
+        plain.replaceSubrange(start..<start+Self.phraseCount*Self.phraseSize,
+                              with: Data(count: Self.phraseCount*Self.phraseSize))
+        for (language, phrase) in phrases.enumerated() {
+            for (i, c) in phrase.utf16.enumerated() {
+                let at = start+language*Self.phraseSize+2*i
+                plain[at] = UInt8(truncatingIfNeeded: c); plain[at+1] = UInt8(c >> 8)
+            }
+        }
+        for flag in [8, 10] {
+            plain[a+0x1267c+flag*2] = 0; plain[a+0x1267c+flag*2+1] = 0
+        }
+        clearSpeechFlags([0x14], at: a)
+    }
+    private func clearSpeechFlags(_ flags: [Int], at a: Int) {
+        // S00 gives both local and visitor memories the same 256-byte event
+        // array at +0x38. Preserve identities, friendship, dates and other flags.
+        for (base, size, count) in [(Self.memoryBase, Self.memorySize, Self.memoryCount),
+                                    (Self.lightMemoryBase, Self.lightMemorySize, Self.lightMemoryCount)] {
+            for player in 0..<count {
+                for flag in flags { plain[a+base+player*size+0x38+flag] = 0 }
+            }
+        }
+    }
+    private func setDefaultAddressing(at a: Int) {
+        for player in 0..<Self.memoryCount {
+            let memory = a+Self.memoryBase+player*Self.memorySize
+            // char16[10] nickname, 11 char16[48] greetings and GSaveDate.
+            // Fresh unused memories in all 417 pinned templates use zero here.
+            plain.replaceSubrange(memory+0x138..<memory+0x570, with: Data(count: 0x438))
+        }
+        // EventFlagsNpcMemoryParam: SetGreeting, InputGreeting, InputNickname
+        // and NicknameOriginal. Visitor memories retain the same event markers.
+        clearSpeechFlags([3, 0x13, 0x15, 0x1f], at: a)
+    }
+    func restoreDefaultPhrase(slot: Int) throws {
+        guard (0..<10).contains(slot), let current = animal(slot) else { throw ResidentError.invalid }
+        guard !slots[slot].moving else { throw ResidentError.moving }
+        setDefaultPhrase(current, at: Self.npcBase+slot*Self.npcSize)
+    }
+    func restoreDefaultAddressing(slot: Int) throws {
+        guard (0..<10).contains(slot), animal(slot) != nil else { throw ResidentError.invalid }
+        guard !slots[slot].moving else { throw ResidentError.moving }
+        setDefaultAddressing(at: Self.npcBase+slot*Self.npcSize)
     }
     func replace(slot: Int, with target: ResidentAnimal) throws {
         guard (0..<10).contains(slot), animal(slot) != nil else { throw ResidentError.invalid }
         guard !slots[slot].moving else { throw ResidentError.moving }
-        try valid(target, excluding: slot)
+        try valid(target)
         setIdentity(target, at: Self.npcBase+slot*Self.npcSize)
+    }
+    private func savedDate() throws -> Data {
+        let at = Self.lastSavedTime, year = Int(plain.half(at)), month = Int(plain[at+2]), day = Int(plain[at+3])
+        guard year > 0, (1...12).contains(month) else { throw ResidentError.damaged }
+        let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+        let days = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+        guard (1...days[month-1]).contains(day) else { throw ResidentError.damaged }
+        return plain.subdata(in: at..<at+4)
     }
     func add(_ target: ResidentAnimal, plot: Int) throws {
         guard count < 10 else { throw ResidentError.full }
         try valid(target)
         guard vacantPlots.contains(plot),
-              let slot = (0..<10).first(where: { animal($0) == nil }),
               let origin = (0..<10).first(where: { animal($0) != nil }) else { throw ResidentError.plot }
+        let reserved = housingReservations
+        guard let slot = (0..<10).first(where: { animal($0) == nil && !reserved.contains($0) }) else { throw ResidentError.moving }
         let a = Self.npcBase+slot*Self.npcSize, source = Self.npcBase+origin*Self.npcSize
         guard let encoded = target.template, let compressed = Data(base64Encoded: encoded) else { throw ResidentError.catalog }
         var template = Data(count: Self.npcSize+Self.houseSize)
@@ -225,7 +325,12 @@ final class ResidentSave {
         // first memory can contain its donor's encounters and must not be reused.
         let fresh = template.subdata(in: 4+0x5f0..<4+2*0x5f0)
         guard fresh[0x38..<0x56c].allSatisfy({ $0 == 0 }) else { throw ResidentError.catalog }
+        let arrival = try savedDate()
         plain.replaceSubrange(a..<a+Self.npcSize, with: template.prefix(Self.npcSize))
+        plain.replaceSubrange(a+Self.arrivalDate..<a+Self.arrivalDate+4, with: arrival)
+        // This addition commits an occupied furnished house, not a queued move.
+        // Two pinned donors still have MoveType=1; their transaction is not ours.
+        plain[a+0x1267a] = 0
         // New encounters use only local player identities, with fresh friendships.
         for p in 0..<8 {
             let m = 4+p*0x5f0
@@ -253,6 +358,39 @@ final class ResidentSave {
         plain[h+0x1c4] = 255; plain.put(0,h+4); plain.put(2,h)
     }
 
+    static func safeTree(_ url: URL) throws { try ResidentSaveStorage.safeTree(url) }
+    var backupRoot: URL { storage.backupRoot }
+    var backups: [ResidentBackup] { storage.backups }
+    @discardableResult func save() throws -> URL {
+        try storage.assertUnchanged()
+        var output = plain
+        for (at,n) in Self.hashes { output.put(ResidentCipher.murmur(output,at+4,n),at) }
+        try Self.checkHashes(output)
+        let encrypted = try ResidentCipher.transform(output, header: header)
+        guard try ResidentCipher.transform(encrypted, header: header) == output else { throw ResidentError.crypto }
+        let copy = try storage.backup()
+        try storage.assertUnchanged()
+        // Retain the original encryption header: one atomic main.dat replacement
+        // cannot leave an old-header/new-key pair after an interrupted write.
+        try encrypted.write(to: folder.appendingPathComponent("main.dat"), options: .atomic)
+        return copy
+    }
+    func restore(_ backup: ResidentBackup) throws { _ = try storage.restore(backup, catalog: catalog) }
+}
+
+// File-level checkpoints remain available when the game-format reader rejects
+// the current save. Recovery never exposes invalid data to the editing methods.
+final class ResidentSaveStorage {
+    let folder: URL
+    fileprivate let checkpoint: [String:String]
+    private let metadataDigest: String?
+    init(folder: URL) throws {
+        try Self.safeTree(folder)
+        self.folder = folder.resolvingSymlinksInPath()
+        var files = try Self.inventory(self.folder, includeManifest: true)
+        metadataDigest = files.removeValue(forKey: "resident-backup.json")
+        checkpoint = files
+    }
     static func safeTree(_ url: URL) throws {
         let fm = FileManager.default
         let keys: Set<URLResourceKey> = [.isSymbolicLinkKey,.isRegularFileKey,.isDirectoryKey]
@@ -264,13 +402,16 @@ final class ResidentSave {
             if v.isSymbolicLink == true || f.lastPathComponent.contains(".pending") || (v.isRegularFile != true && v.isDirectory != true) { throw ResidentError.path }
         }
     }
-    private func assertUnchanged() throws {
-        guard try Data(contentsOf: folder.appendingPathComponent("main.dat")) == original,
-              try Data(contentsOf: folder.appendingPathComponent("mainHeader.dat")) == header else { throw ResidentError.changed }
+    fileprivate func assertUnchanged() throws {
+        // A cloud/file-provider update can change personal files independently
+        // of main.dat. Every transaction must use one whole-island checkpoint.
+        var files = try Self.inventory(folder, includeManifest: true)
+        guard files.removeValue(forKey: "resident-backup.json") == metadataDigest,
+              files == checkpoint else { throw ResidentError.changed }
     }
     var backupRoot: URL { folder.deletingLastPathComponent().appendingPathComponent("resident-backups", isDirectory: true) }
-    private static func digest(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
-    private static func inventory(_ url: URL) throws -> [String:String] {
+    fileprivate static func digest(_ data: Data) -> String { SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined() }
+    private static func inventory(_ url: URL, includeManifest: Bool = false) throws -> [String:String] {
         try safeTree(url)
         let root = url.resolvingSymlinksInPath()
         var result: [String:String] = [:]
@@ -279,48 +420,47 @@ final class ResidentSave {
         guard let files = FileManager.default.enumerator(atPath: root.path) else { throw ResidentError.backup }
         for case let relative as String in files {
             let f = root.appendingPathComponent(relative)
-            if relative != "resident-backup.json", try f.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true {
+            if includeManifest || relative != "resident-backup.json", try f.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true {
                 result[relative] = digest(try Data(contentsOf: f))
             }
         }
         return result
     }
-    private func backup() throws -> URL {
+    fileprivate func backup(unverified: Bool = false) throws -> URL {
         let fm = FileManager.default
-        try fm.createDirectory(at: backupRoot, withIntermediateDirectories: true)
-        let destination = backupRoot.appendingPathComponent(ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")+"-"+UUID().uuidString.prefix(8))
-        let partial = backupRoot.appendingPathComponent(".partial-"+UUID().uuidString)
+        try assertUnchanged()
+        let directory = unverified ? backupRoot.appendingPathComponent("Unverified", isDirectory: true) : backupRoot
+        try fm.createDirectory(at: directory, withIntermediateDirectories: true)
+        let destination = directory.appendingPathComponent(ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")+"-"+UUID().uuidString.prefix(8))
+        let partial = directory.appendingPathComponent(".partial-"+UUID().uuidString)
         defer { try? fm.removeItem(at: partial) }
-        try fm.copyItem(at: folder, to: partial)
-        let files = try Self.inventory(partial)
-        try JSONEncoder().encode(files).write(to: partial.appendingPathComponent("resident-backup.json"), options: .atomic)
+        // Preserve even a pre-existing metadata file in an unreadable source.
+        // Its raw payload stays separate from the preservation manifest.
+        let payload = unverified ? partial.appendingPathComponent("save", isDirectory: true) : partial
+        if unverified { try fm.createDirectory(at: partial, withIntermediateDirectories: true) }
+        try fm.copyItem(at: folder, to: payload)
+        var files = try Self.inventory(payload, includeManifest: unverified)
+        let preservedInventory = files
+        if unverified {
+            guard files.removeValue(forKey: "resident-backup.json") == metadataDigest else { throw ResidentError.changed }
+        }
+        guard files == checkpoint else { throw ResidentError.changed }
+        try assertUnchanged()
+        try JSONEncoder().encode(preservedInventory).write(to: partial.appendingPathComponent("resident-backup.json"), options: .atomic)
         try fm.moveItem(at: partial, to: destination)
         return destination
     }
-    @discardableResult func save() throws -> URL {
-        try Self.safeTree(folder); try assertUnchanged()
-        var output = plain
-        for (at,n) in Self.hashes { output.put(ResidentCipher.murmur(output,at+4,n),at) }
-        try Self.checkHashes(output)
-        let encrypted = try ResidentCipher.transform(output, header: header)
-        guard try ResidentCipher.transform(encrypted, header: header) == output else { throw ResidentError.crypto }
-        let copy = try backup()
-        try assertUnchanged()
-        // Retain the original encryption header: one atomic main.dat replacement
-        // cannot leave an old-header/new-key pair after an interrupted write.
-        try encrypted.write(to: folder.appendingPathComponent("main.dat"), options: .atomic)
-        return copy
-    }
     var backups: [ResidentBackup] {
         let urls = (try? FileManager.default.contentsOfDirectory(at: backupRoot, includingPropertiesForKeys: [.creationDateKey])) ?? []
-        return urls.filter { !$0.lastPathComponent.hasPrefix(".") }.compactMap { url in
+        return urls.filter { !$0.lastPathComponent.hasPrefix(".") && $0.lastPathComponent != "Unverified" }.compactMap { url in
             guard FileManager.default.fileExists(atPath: url.appendingPathComponent("resident-backup.json").path) else { return nil }
             let manifest = url.appendingPathComponent("resident-backup.json")
             return ResidentBackup(url: url, date: (try? manifest.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast)
         }.sorted { $0.date > $1.date }
     }
-    func restore(_ backup: ResidentBackup) throws {
-        guard backup.url.deletingLastPathComponent().resolvingSymlinksInPath().path == backupRoot.resolvingSymlinksInPath().path else {
+    @discardableResult func restore(_ backup: ResidentBackup, catalog: ResidentCatalog) throws -> URL {
+        guard !backup.url.lastPathComponent.hasPrefix("."), backup.url.lastPathComponent != "Unverified",
+              backup.url.deletingLastPathComponent().resolvingSymlinksInPath().path == backupRoot.resolvingSymlinksInPath().path else {
             fputs("resident manager: backup is outside this island's backup folder\n", stderr); throw ResidentError.backup
         }
         try Self.safeTree(backup.url)
@@ -330,12 +470,16 @@ final class ResidentSave {
             fputs("resident manager: backup inventory mismatch: expected \(expected.keys.sorted()), found \(actual.keys.sorted())\n", stderr); throw ResidentError.backup
         }
         _ = try ResidentSave(folder: backup.url, catalog: catalog)
-        try assertUnchanged(); _ = try self.backup()
+        try assertUnchanged()
+        let verified = (try? ResidentSave(storage: self, catalog: catalog)) != nil
+        let preserved = try self.backup(unverified: !verified)
         let stage = folder.deletingLastPathComponent().appendingPathComponent(".resident-restore-"+UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: stage) }
         try FileManager.default.copyItem(at: backup.url, to: stage)
         try FileManager.default.removeItem(at: stage.appendingPathComponent("resident-backup.json"))
+        guard try Self.inventory(stage) == expected else { throw ResidentError.backup }
         try assertUnchanged()
         guard renameatx_np(AT_FDCWD, stage.path, AT_FDCWD, folder.path, UInt32(RENAME_SWAP)) == 0 else { throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO) }
+        return preserved
     }
 }

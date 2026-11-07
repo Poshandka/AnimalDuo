@@ -1,10 +1,8 @@
 # AnimalDuo
 
-Current release: **AnimalDuo 1.1**, based on application build **3.0.59** for game **3.0.3**. See the [Chinese release notes](RELEASES/1.1.md) for improved fullscreen presentation, transition coverage, controls and coordinated local-play waiting.
+**AnimalDuo 1.2** corresponds to application build **3.0.68** for game **3.0.3**. It improves LAN recovery after brief backgrounding, restores the visitor companion display, improves resident editing and backup recovery, and adds an adjustable slow-walk zone. See the [release notes](RELEASES/1.2.md).
 
 [简体中文](README.md) · English · [English source guide](PUBLIC-SOURCE.md)
-
-**Your game above. Your island at a glance.**
 
 AnimalDuo is an experimental open-source project providing compatibility support and interface enhancements for **Animal Crossing: New Horizons 3.0.3** on **iPad, iPhone and Apple Silicon Mac**.
 
@@ -16,17 +14,14 @@ The project builds on **nxnative**, using the native-execution approach originat
 
 ---
 
-**New in 1.1**
+**New in 1.2**
 
-- iPad landscape fills the canvas; portrait game and companion each use half the height.
-- Expanded HUD and NookPhone backgrounds, including DIY, Miles and My Designs, retain their intended coverage.
-- Black, white and translucent transition masks cover expanded margins.
-- Controls default to 3D; an old 2D setting is migrated once. Stick clicks clear the footer, and name confirmation restores landscape controls.
-- Companion busy masks cover both sides; connected controllers release space for companion content.
-- LAN address selection prefers an available private network over link-local fallback.
-- Compatible rooms can pause for a brief background absence: 30 seconds by default or 60 seconds chosen by the host, with a countdown, readiness handshake and explicit end action. Mixed old/new rooms retain ordinary LAN and disable waiting. System eviction or network loss can end a visit early.
+- LAN sessions handle paused socket requests and recover discovery handles after brief backgrounding. Visitors can view all six companion pages on the host island.
+- Replacing an animal resets catchphrases, player nicknames and custom greetings. Existing residents have separate actions for restoring the default phrase or the default nicknames and greetings.
+- Resident edits check the complete save and respect pending housing assignments. Backup browsing and verified restoration are available when the current save cannot be read.
+- The touch layout editor adjusts how far the left stick travels before leaving the slow-walk zone. Landscape and portrait profiles store their settings separately.
 
-The frozen 3.0.59 build passed finite same-Mac game-process and native UI checks. Physical-device background recovery and cross-device Wi-Fi/iCloud behavior remain unverified. This release does not claim improved frame rate or unlimited background execution.
+Local game tests covered four successive four-second absences across host and visitor, and measured the slow-walk input on a test island. Physical-device LAN recovery and cross-device iCloud transfer remain to be verified. The earlier fullscreen, transition and coordinated-wait changes are documented in the [1.1 release notes](RELEASES/1.1.md).
 
 ---
 
@@ -42,13 +37,13 @@ The frozen 3.0.59 build passed finite same-Mac game-process and native UI checks
   Before launching the game, search, filter and replace residents from a catalog of 417 ordinary animal residents. Add a resident to an existing vacant housing plot, or remove one while retaining the plot. The original ten-animal limit remains, and every edit first backs up the complete save.
 
 - **Island backups and restore**  
-  Create named checkpoints, browse backup history and restore a complete island. The current save is backed up before restoration. Restoring rolls back both player and island progress.
+  Create named checkpoints, browse backup history and restore a complete island. The current files are preserved before recovery. Restoring rolls back both player and island progress.
 
 - **Save synchronization tools**  
   Share complete checkpoints through a common cloud folder selected by the user, with conflict selection and a local offline option. Actual cross-device cloud transfer remains unverified; two independently progressed saves cannot be merged automatically.
 
 - **Experimental local multiplayer**  
-  Matching builds and game versions provide island discovery, hosting, visits and return trips. Two independent game processes on one Mac have completed visits, 15/35-second suspension recovery and 60-second expiry handling; physical-device Wi-Fi and background recovery remain unverified.
+  Matching builds and game versions provide island discovery, hosting, visits and return trips. Compatible rooms can wait for a brief absence, with 30 seconds by default or 60 seconds selected by the host.
 
 - **Touch and controller support**  
   Use physical controllers, supported haptics, separate portrait and landscape touch layouts, and manual control visibility or automatic fade. Companion refreshes, shader prewarming, caches and graphics resource management continue to receive improvements.
@@ -56,6 +51,16 @@ The frozen 3.0.59 build passed finite same-Mac game-process and native UI checks
 AnimalDuo's adaptation work focuses on the Apple companion presentation, inventory interaction, resident and save management, touch layouts and runtime fixes. The underlying execution framework and companion modules are credited below.
 
 ---
+
+**Minimum system and chip requirements**
+
+| Platform | Minimum system | Chip baseline |
+|---|---|---|
+| iPhone | iOS 26.0 | A14 Bionic or newer, starting with iPhone 12. |
+| iPad | iPadOS 26.0 | A14 Bionic or later A-series chip, or Apple M1 or later M-series chip. The fourth-generation iPad Air uses A14 Bionic. |
+| Apple Silicon Mac | macOS 27.0 | Apple M1 or newer M-series. |
+
+The mobile chip baseline follows the renderer's Metal 4 requirement. The Mac row uses the project's packaging baseline. Gameplay on the minimum hardware remains to be verified. [Apple Metal compatibility](https://support.apple.com/en-gb/102894) · [macOS 27 compatibility](https://support.apple.com/en-us/127255)
 
 **Platforms and validation scope**
 
@@ -77,13 +82,13 @@ See the [Animal Crossing profile note](dm/games/01006F8002326000/README.md) for 
 
 **Get the source and build**
 
-[Download 1.1 source](https://github.com/ShawndYang/AnimalDuo/releases/tag/v1.1) · [English source and build guide](PUBLIC-SOURCE.md) · [Browse the repository](https://github.com/ShawndYang/AnimalDuo)
+[Download 1.2 source](https://github.com/ShawndYang/AnimalDuo/releases/tag/v1.2) · [English source and build guide](PUBLIC-SOURCE.md) · [Browse the repository](https://github.com/ShawndYang/AnimalDuo)
 
-Use the main branch for the subsequent SDK compatibility, haptics-test and Python-check fixes. The v1.1 tag and downloadable archive retain the original frozen source. Commit-specific check results are available in [GitHub Actions](https://github.com/ShawndYang/AnimalDuo/actions).
+Use the `v1.2` tag for the fixed release snapshot. The `main` branch is the development source. Commit-specific check results are available in [GitHub Actions](https://github.com/ShawndYang/AnimalDuo/actions).
 
 **The download contains source code, not an installable game.**
 
-Upgrading from 1.0 (build 3.0.51) to 1.1 (build 3.0.59) keeps game content at 3.0.3. Back up the complete save before updating. Retain the same installation identity and application container rather than uninstalling first; compatible resources can be reused. A thin update cannot bootstrap a first installation. All room members need coordinated-wait support; return readiness is automatic.
+Both 1.1 (build 3.0.59) and 1.2 (build 3.0.68) use game 3.0.3. Back up the complete save first. Use the same installation identity and application container to reuse compatible resources. A first installation needs matching game resources. Regenerate the optional resident catalog with the 1.2 script to include all eleven phrase languages. Update both sides of a LAN visit to apply the recovery fixes on both devices.
 
 Report problems with the [issue form](https://github.com/ShawndYang/AnimalDuo/issues/new?template=bug_report.yml), including build, device/system and reproduction steps. Redact personal paths and device identifiers; do not attach saves, keys or signing material.
 

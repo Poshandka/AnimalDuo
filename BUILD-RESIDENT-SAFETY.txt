@@ -1,0 +1,26 @@
+AnimalDuo resident housing safety and manager efficiency
+Application build: 3.0.65
+Game version: 3.0.3
+Project release: 1.1 (the v1.1 tag remains application 3.0.59)
+
+Resident editing checks pending references in every house. Addition and the empty
+record cache skip NPC slots reserved by either house reference. Pending game
+transactions remain intact and finish in the game.
+
+The manager releases its no-longer-needed encrypted main buffer after opening.
+Complete checkpoint digests retain the same stale-writer protection. Backup
+metadata is loaded on the worker and published with the document, keeping repeated
+filesystem enumeration out of view rendering.
+
+Validation uses synthetic and disposable real saves, cross-house references,
+reserved slot exhaustion, permuted NPC/plot indexes, unrelated-byte comparisons,
+the actual asynchronous model, and local allocation/metadata benchmarks. See
+dm/games/01006F8002326000/README.md for complete scope and validation limits.
+
+This unsigned iPad/iPhone update reuses installed bulk resources and the resident
+catalog. It changes the executable and bundle version. Use the same sideloading
+identity and bundle identifier to retain the existing data container. No physical
+device application is signed or installed by the build process.
+
+Corresponding source retains upstream attribution and component licenses. Game
+resources, generated templates, player saves and personal information are excluded.

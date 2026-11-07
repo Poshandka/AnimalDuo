@@ -1,0 +1,28 @@
+AnimalDuo resident state audit
+Application build: 3.0.63
+Game version: 3.0.3
+Project release: 1.1 (the v1.1 tag remains application 3.0.59)
+
+Replacement resets localized catchphrases, player nicknames and custom greetings
+with their associated speech markers. It preserves player identities, friendship,
+clothing, gifts, houses and story progress. Local and visitor memories share the
+speech event flags, so old authorship markers are cleared in both layouts.
+
+The manager retains the phrase-only reset and adds an independent nickname/greeting
+reset for previously edited residents. Both use complete backups and atomic writes.
+Replacement with the current animal is rejected before any data changes. Move type,
+queued forced departure and pending secondary house occupants block editing.
+
+Validation uses synthetic saves, disposable island copies, all 417 catalog choices,
+all eleven phrase languages, an 8-by-8 personality matrix, full byte comparisons,
+backup/reload checks, independent NHSE integrity reads and native game routes.
+See dm/games/01006F8002326000/README.md for evidence and validation limits.
+
+This unsigned iPad/iPhone update reuses the same installed bulk resources and resident
+catalog. It replaces the executable, version and resident-tool localization. Use the
+same sideloading identity and bundle identifier as the existing app to retain its
+data container. No device application is signed or installed by the build process.
+
+Corresponding source excludes game resources, generated catalogs, resident templates,
+player saves, device logs, captures, signing material and private paths. Earlier
+3.0.60/3.0.61 local-play and 3.0.62 phrase fixes are included.

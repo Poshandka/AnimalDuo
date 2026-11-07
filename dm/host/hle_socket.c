@@ -65,7 +65,10 @@ static int sk_guest_errno(int e) {
 }
 static int sk_error(int e) { dm_sk_errno = sk_guest_errno(e); return -1; }
 static int sk_down(void) { return sk_error(ENETDOWN); }
-static uint64_t sk_ms(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec * 1000ull + t.tv_nsec / 1000000; }
+// Socket deadlines belong to guest time. A request already inside poll/recv
+// must retain its remaining timeout while a coordinated room pause is held.
+// The independent native LDN control transport continues to use wall time.
+static uint64_t sk_ms(void) { return guest_ns() / 1000000; }
 static void sk_setup(int fd) { int yes = 1; setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &yes, sizeof yes); fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK); }
 static int sk_insert(int fd, int type, int flags) {
     pthread_mutex_lock(&sk_lock);

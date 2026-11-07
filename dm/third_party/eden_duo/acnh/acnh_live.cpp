@@ -39,7 +39,9 @@ const Pin* const AllPins[] = {
     &PinPhoneSeqVt,     &PinPhoneCursor,  &PinPhoneList,    &PinResOrderCall,  &PinResOrderKey,
     &PinDateToCalendar, &PinBookLoad,     &PinBookCell,     &PinVisitorCall,   &PinTodayVisitor,
     &PinVisitorGst,     &PinVisitorLabel, &PinPocketSlot,   &PinPocketVt,      &PinPocketCursor,
-    &PinCaseTable, &PinStageName};
+    &PinCaseTable, &PinStageName, &PinPlayerActorNo,
+    &PinVisitSaveData, &PinVisitSaveEnd, &PinVisitSaveTree,
+    &PinVisitPlayerMap, &PinVisitPlayerIndex, &PinVisitPersonal};
 
 void AddDiag(std::string& diag, std::string_view what) {
     if (diag.size() > 400)
@@ -77,9 +79,15 @@ enum Domain : uint32_t {
     DOrder = 256,
     DVisitor = 512,
     DPocketUi = 1024,
-    DText = 2048
+    DText = 2048,
+    DVisitSave = 4096,
+    DVisitPersonal = 8192
 };
 uint32_t PinDomains(const Pin* p) {
+    if (p == &PinVisitPlayerMap || p == &PinVisitPlayerIndex || p == &PinVisitPersonal)
+        return DVisitPersonal;
+    if (p == &PinVisitSaveData || p == &PinVisitSaveEnd || p == &PinVisitSaveTree)
+        return DVisitSave;
     if (p == &PinSaveMgr || p == &PinSaveSlotData || p == &PinSaveSlotTree || p == &PinGetPersonal)
         return DSave;
     if (p == &PinLocalPlayerNo)
@@ -195,6 +203,10 @@ bool Reader::Resolve(const Guest& g, std::string& diag) {
     roots.actor_list = at(PinActorList, 0, 1);
     roots.save_vt_slot2 = b + PinSaveSlotData.offset;
     roots.save_vt_slot7 = b + PinSaveSlotTree.offset;
+    roots.visit_save_slot2 = b + PinVisitSaveData.offset;
+    roots.visit_save_slot7 = b + PinVisitSaveTree.offset;
+    roots.visit_player_map = at(PinVisitPlayerMap, 0, 2);
+    roots.visit_player_records = at(PinVisitPersonal, 0, 2);
     roots.player_actor_name = b + PinPlayerActorName.offset;
     roots.camera_slot = b + PinCameraComp.offset;
     roots.app_table = at(PinAppTable, 0, 1);
@@ -216,7 +228,7 @@ bool Reader::Resolve(const Guest& g, std::string& diag) {
 // ---- save -----------------------------------------------------------------------------------
 bool Reader::SaveData(const Guest& g, uint64_t& main_dat, std::string& diag) const {
     // SaveMgr pin: mgr = [g]; set = [mgr+0x10]; obj = (mgr+0x453 & 1) ? [set+0x130] : [set].
-    uint64_t mgr = 0, set = 0, obj = 0, vt = 0, slot2 = 0, slot7 = 0, data = 0, tree = 0;
+    uint64_t mgr = 0, set = 0, obj = 0, vt = 0, slot2 = 0, slot7 = 0, data = 0, tree = 0, end = 0;
     uint8_t alt = 0;
     if (!roots.save_mgr || !g.Get(roots.save_mgr, mgr) || !IsHeapPtr(mgr) ||
         !g.Get(mgr + 0x453, alt) || !g.Get(mgr + 0x10, set) || !IsHeapPtr(set) ||
@@ -224,36 +236,71 @@ bool Reader::SaveData(const Guest& g, uint64_t& main_dat, std::string& diag) con
         AddDiag(diag, "save mgr");
         return false;
     }
-    // The object's vtable must be the class whose slot 2 / slot 7 are the pinned accessors.
+    // A visit selects a different class: its data begins at Land, not at the
+    // versioned GSaveMain header. Only the exact pinned accessor pair is accepted.
     if (!g.Get(obj, vt) || !g.InMain(vt, 0x40) || !g.Get(vt + 0x10, slot2) ||
-        !g.Get(vt + 0x38, slot7) || slot2 != roots.save_vt_slot2 || slot7 != roots.save_vt_slot7) {
+        !g.Get(vt + 0x38, slot7)) {
+        AddDiag(diag, "save vtable");
+        return false;
+    }
+    const bool full = slot2 == roots.save_vt_slot2 && slot7 == roots.save_vt_slot7;
+    const bool land = !full && (alt & 1) && !(dead_domains & DVisitSave) &&
+                      slot2 == roots.visit_save_slot2 && slot7 == roots.visit_save_slot7;
+    if (!full && !land) {
         AddDiag(diag, "save vtable");
         return false;
     }
     if (!g.Get(obj + 0x10, data) || !IsHeapPtr(data) || !g.Get(obj + 0x20, tree) ||
-        !IsHeapPtr(tree)) {
+        !IsHeapPtr(tree) || !g.Get(obj + 0x18, end) || end <= data ||
+        end - data > (64u << 20) ||
+        end - data < (land ? M::MuseumItems + M::MuseumCount * 8 - M::Land : M::Size)) {
         AddDiag(diag, "save data");
         return false;
     }
     // Cross-check with the game's field handles: tree+0x70 = the Land handle {vt, base, offset}
     // (GSaveMain.Land at 0x110); its base must be the same bytes.
     uint64_t hbase = 0, hoff = 0;
-    if (!g.Get(tree + 0x78, hbase) || !g.Get(tree + 0x80, hoff) || hbase != data || hoff != 0x110) {
+    if (!g.Get(tree + 0x78, hbase) || !g.Get(tree + 0x80, hoff) || hbase != data ||
+        hoff != (land ? 0 : M::Land)) {
         AddDiag(diag, "save handle");
         return false;
     }
     main_dat = data;
     save_tree = tree;
+    save_bytes = end - data;
+    save_land_offset = land ? M::Land : 0;
     return true;
 }
 
 bool Reader::PersonalData(const Guest& g, int player_no, uint64_t& personal, int& slot) const {
     // GetPersonal pin: first slot i with {id == player_no, valid == 1} at mgr+0x90+i*8, then
     // [[mgr+0x10]+0x60+i*8]+0x10.
-    uint64_t mgr = 0, set = 0, obj = 0, data = 0;
+    uint64_t mgr = 0, set = 0, obj = 0, data = 0, map_entry = 0;
+    int32_t record_index = -1;
     if (player_no < 0 || player_no > 7 || !roots.save_mgr || !g.Get(roots.save_mgr, mgr) ||
         !IsHeapPtr(mgr))
         return false;
+    if (save_land_offset) {
+        // Follow the same network-number -> resident-number conversion as the
+        // game's personal accessor. The local visitor may be network player 1
+        // while their personal save still belongs to resident 0 (or another id).
+        uint64_t map = 0, got = 0, records = 0;
+        uint32_t kind = ~0u;
+        uint8_t valid = 0, resident = 0xff;
+        if ((dead_domains & DVisitPersonal) || !g.Get(roots.visit_player_map, map) ||
+            !IsHeapPtr(map) || !g.Get(roots.visit_player_records, got) ||
+            !IsHeapPtr(got) || !g.Get(got, records) || !IsHeapPtr(records))
+            return false;
+        map_entry = map + uint64_t(player_no) * sizeof(int32_t);
+        if (!g.Get(map_entry, record_index) || record_index < 0 || record_index > 7)
+            return false;
+        const uint64_t record = records + uint64_t(record_index) * 0x13f0;
+        if (!g.Get(record + 0x13d0, kind) || kind != 0 ||
+            !g.Get(record + 0x13d4, valid) || !valid ||
+            !g.Get(record + 0x13d5, resident) || resident > 7)
+            return false;
+        player_no = resident;
+    }
     uint32_t slots[16];
     if (!g.Read(mgr + 0x90, slots, sizeof slots))
         return false;
@@ -266,6 +313,9 @@ bool Reader::PersonalData(const Guest& g, int player_no, uint64_t& personal, int
     if (found < 0 || !g.Get(mgr + 0x10, set) || !IsHeapPtr(set) ||
         !g.Get(set + 0x60 + found * 8, obj) || !IsHeapPtr(obj) || !g.Get(obj + 0x10, data) ||
         !IsHeapPtr(data))
+        return false;
+    int32_t again = -1;
+    if (map_entry && (!g.Get(map_entry, again) || again != record_index))
         return false;
     personal = data;
     slot = found;
@@ -324,13 +374,13 @@ void Reader::ReadVisitor(const Guest& g, LiveSnapshot& out) const {
     out.visitor_label.clear();
     if ((dead_domains & (DVisitor | DClock | DSave)) || !save_tree || !roots.time_mgr)
         return;
-    uint64_t hb = 0, ho = 0, main_dat = 0;
+    uint64_t hb = 0, ho = 0;
     if (!g.Get(save_tree + 0x70 + 0x1bf240, hb) || !g.Get(save_tree + 0x70 + 0x1bf248, ho))
         return;
-    // the handle is {offset, base} or {base, offset} (the code adds both); main.dat is the base
-    main_dat = IsHeapPtr(hb) ? hb : ho;
+    // Both full and Land-only objects expose the same field handle, relative
+    // to their own validated buffer origin.
     const uint64_t arr = hb + ho;
-    if (arr != main_dat + M::VisitorNpc)
+    if (arr != out.IslandField(M::VisitorNpc, 7 * sizeof(int32_t)))
         return;
     std::array<int32_t, 7> a{};
     if (!g.Read(arr, a.data(), sizeof a))
@@ -479,11 +529,17 @@ bool Reader::StateOf(const Guest& g, uint64_t sm, StateName& out) const {
     return g.Get(sm + 8, again) && again == cur;
 }
 
-uint64_t Reader::FindPlayerActor(const Guest& g, std::string& why) const {
+uint64_t Reader::FindPlayerActor(const Guest& g, int local_no, std::string& why) const {
     // ActorList pin: mgr = [g]; head node [mgr+0x10], count [mgr+0x20], node offset [mgr+0x24].
     // Each entry is the list object at comp+0x290 of a component (ActorListComp pin: vtable,
     // [comp+0x278] = comp+0x290); the component's owner actor is at comp+0x48. The player is the
     // actor whose class name accessor (vtable slot 2) is the pinned "PlayerActor" one.
+    // A visit creates one actor per player. Select the verified local-number byte,
+    // rather than treating a second player as a loading scene or using list order.
+    if (local_no < 0 || local_no > 7) {
+        why = "local player number";
+        return 0;
+    }
     uint64_t mgr = 0, node = 0;
     int32_t count = 0, nodeoff = 0;
     if (!roots.actor_list || !g.Get(roots.actor_list, mgr) || !IsHeapPtr(mgr) ||
@@ -494,7 +550,7 @@ uint64_t Reader::FindPlayerActor(const Guest& g, std::string& why) const {
     }
     const uint64_t want_vt = PinData(g, PinActorListComp, 0, 1);
     uint64_t found = 0;
-    int players = 0, entries = 0;
+    int players = 0, matches = 0, entries = 0;
     for (int k = 0; k <= count && IsHeapPtr(node); ++k) {
         const uint64_t obj = node - nodeoff, comp = obj - 0x290;
         uint64_t vt = 0, back = 0, actor = 0, avt = 0, name_fn = 0, next = 0;
@@ -504,14 +560,18 @@ uint64_t Reader::FindPlayerActor(const Guest& g, std::string& why) const {
                 IsHeapPtr(actor) && g.Get(actor, avt) && g.InMain(avt, 0x18) &&
                 g.Get(avt + 0x10, name_fn) && name_fn == roots.player_actor_name) {
                 ++players;
-                found = actor;
+                uint8_t no = 0xff;
+                if (g.Get(actor + 0x1ee8, no) && no == local_no) {
+                    ++matches;
+                    found = actor;
+                }
             }
         }
         if (!g.Get(node, next))
             break;
         node = next;
     }
-    if (players != 1) {
+    if (matches != 1 || LocalPlayerNo(g) != local_no) {
         // A complete walk (`count` list components, then the end of the list) without a
         // PlayerActor is a real game state, not a broken route: scenes the player is not part of,
         // e.g. the title island and Isabelle's morning announcement on the first boot of a new
@@ -524,7 +584,9 @@ uint64_t Reader::FindPlayerActor(const Guest& g, std::string& why) const {
         for (int k = 0; whole && k < count; ++k)
             whole = g.Get(n, n);
         whole = whole && (n == 0 || n == end);
-        why = players ? "several players" : (whole ? "no player in this scene" : "no player actor");
+        why = matches > 1 ? "duplicate local player actors" :
+              players ? "local player actor unavailable" :
+              (whole ? "no player in this scene" : "no player actor");
         return 0;
     }
     return found;
@@ -564,7 +626,7 @@ void Reader::ReadScene(const Guest& g, LiveSnapshot& out) {
     out.actor_at = 0;
     if (!(dead_domains & DPlayer)) {
         std::string why;
-        const uint64_t actor = FindPlayerActor(g, why);
+        const uint64_t actor = FindPlayerActor(g, out.player_no, why);
         out.actor_at = actor;
         uint64_t holder = 0;
         if (actor && g.Get(actor + 0x70, holder) && IsHeapPtr(holder))
@@ -692,9 +754,9 @@ void Reader::ReadIsland(const Guest& g, uint64_t main_dat, LiveSnapshot& out) {
     island_buf[0].resize(M::LandMakingSize);
     island_buf[1].resize(M::FieldBlockSize);
     island_buf[2].resize(M::StructureSize);
-    if (!g.Read(main_dat + M::LandMaking, island_buf[0].data(), island_buf[0].size()) ||
-        !g.Read(main_dat + M::FieldBlocks, island_buf[1].data(), island_buf[1].size()) ||
-        !g.Read(main_dat + M::Structures, island_buf[2].data(), island_buf[2].size()))
+    if (!g.Read(out.IslandField(M::LandMaking, island_buf[0].size()), island_buf[0].data(), island_buf[0].size()) ||
+        !g.Read(out.IslandField(M::FieldBlocks, island_buf[1].size()), island_buf[1].data(), island_buf[1].size()) ||
+        !g.Read(out.IslandField(M::Structures, island_buf[2].size()), island_buf[2].data(), island_buf[2].size()))
         return;
     island_last_ms = now;
     if (island_rev && island_buf[0] == out.land_making && island_buf[1] == out.field_blocks &&
@@ -703,7 +765,7 @@ void Reader::ReadIsland(const Guest& g, uint64_t main_dat, LiveSnapshot& out) {
     // torn check: the structure list again (the cheap part a relocation touches)
     std::vector<uint8_t>& st2 = island_buf[3];
     st2.resize(M::StructureSize);
-    if (!g.Read(main_dat + M::Structures, st2.data(), st2.size()) || st2 != island_buf[2])
+    if (!g.Read(out.IslandField(M::Structures, st2.size()), st2.data(), st2.size()) || st2 != island_buf[2])
         return;
     out.island_rev = ++island_rev;
     out.land_making.swap(island_buf[0]);
@@ -737,6 +799,7 @@ void Reader::Sample(const Guest& g, const Need& need, LiveSnapshot& out) {
     out.reloc = g.DataDelta();
     out.heap_lo = g.HeapBegin(), out.heap_hi = g.HeapEnd();
     out.main_dat = 0;
+    out.island_bytes = out.island_tree = out.land_offset = 0;
 
     out.order_ok = !(dead_domains & DOrder);
     if (!case_table && !(dead_domains & DText) && roots.case_table) {
@@ -784,7 +847,7 @@ void Reader::Sample(const Guest& g, const Need& need, LiveSnapshot& out) {
     // ---- main.dat ----
     uint64_t main_dat = 0;
     out.save_ok = !(dead_domains & DSave) && SaveData(g, main_dat, out.diag);
-    if (out.save_ok) {
+    if (out.save_ok && !save_land_offset) {
         // a cheap sanity read: the header's version words (GSaveMain.Version) start the blob
         uint32_t ver[2] = {};
         if (!g.Read(main_dat, ver, sizeof ver) || ver[0] != 0xA0002u || ver[1] != 0xA0028u) {
@@ -794,10 +857,13 @@ void Reader::Sample(const Guest& g, const Need& need, LiveSnapshot& out) {
     }
     if (out.save_ok) {
         out.main_dat = main_dat;
+        out.island_bytes = save_bytes;
+        out.island_tree = save_tree;
+        out.land_offset = save_land_offset;
         uint8_t name[20], wa[4];
-        if (g.Read(main_dat + M::IslandName, name, sizeof name))
+        if (g.Read(out.IslandField(M::IslandName, sizeof name), name, sizeof name))
             out.island_name = Utf16(name, 10);
-        if (g.Read(main_dat + M::WeatherArea, wa, sizeof wa)) {
+        if (g.Read(out.IslandField(M::WeatherArea, sizeof wa), wa, sizeof wa)) {
             int32_t v;
             std::memcpy(&v, wa, 4);
             out.hemi = v == 0 || v == 1 ? v : -1;
@@ -807,12 +873,12 @@ void Reader::Sample(const Guest& g, const Need& need, LiveSnapshot& out) {
                 uint8_t id[3] = {};
                 auto& r = out.residents[i];
                 r = {};
-                if (g.Read(main_dat + M::Villager + i * M::VillagerStride, id, 3)) {
+                if (g.Read(out.IslandField(M::Villager + i * M::VillagerStride, 3), id, 3)) {
                     r.species = id[0], r.variant = id[1], r.personality = id[2];
                     r.present = true; // emptiness is decided by the catalog join (publish)
                     uint8_t bd[4];
-                    if (g.Read(main_dat + M::Villager + i * M::VillagerStride +
-                                   M::VillagerBirthDate,
+                    if (g.Read(out.IslandField(M::Villager + i * M::VillagerStride +
+                                   M::VillagerBirthDate, 4),
                                bd, 4)) {
                         r.born_ok = true;
                         r.born_y = static_cast<uint16_t>(bd[0] | bd[1] << 8);
@@ -821,25 +887,25 @@ void Reader::Sample(const Guest& g, const Need& need, LiveSnapshot& out) {
                 }
             }
             out.structures.resize(M::StructureSize);
-            if (!g.Read(main_dat + M::Structures, out.structures.data(), out.structures.size()))
+            if (!g.Read(out.IslandField(M::Structures, out.structures.size()), out.structures.data(), out.structures.size()))
                 out.structures.clear();
         }
         if (need.island)
             ReadIsland(g, main_dat, out);
         if (need.today) {
             uint8_t kabu[0x44];
-            if (g.Read(main_dat + M::ShopKabu, kabu, sizeof kabu)) {
+            if (g.Read(out.IslandField(M::ShopKabu, sizeof kabu), kabu, sizeof kabu)) {
                 std::memcpy(&out.kabu_sun, kabu, 4);
                 std::memcpy(out.kabu.data(), kabu + 4, 14 * 4);
             }
             int32_t wt = -1;
-            out.weather_today = g.Get(main_dat + M::WeatherToday, wt) ? wt : -1;
+            out.weather_today = g.Get(out.IslandField(M::WeatherToday, sizeof wt), wt) ? wt : -1;
             ReadVisitor(g, out);
         }
         if (need.critters) {
             auto& items = museum_buf;
             out.donated.clear();
-            if (g.Read(main_dat + M::MuseumItems, items.data(), items.size()))
+            if (g.Read(out.IslandField(M::MuseumItems, items.size()), items.data(), items.size()))
                 for (uint32_t i = 0; i < M::MuseumCount; ++i) {
                     const uint16_t id = static_cast<uint16_t>(items[i * 8] | items[i * 8 + 1] << 8);
                     if (id != 0xFFFE && id != 0)

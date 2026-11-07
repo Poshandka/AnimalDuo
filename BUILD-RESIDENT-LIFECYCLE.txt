@@ -1,0 +1,28 @@
+AnimalDuo resident lifecycle audit
+Application build: 3.0.64
+Game version: 3.0.3
+Project release: 1.1 (the v1.1 tag remains application 3.0.59)
+
+New residents use the island's last saved calendar date rather than their donor
+template's arrival date. Replacement retains the current arrival and story state.
+The saved calendar is validated before any addition changes the in-memory island.
+Addition also clears the donor's pending move: it commits an occupied furnished
+house and must not inherit an unrelated donor transaction.
+
+Resident transactions now guard every save file, including player personal files.
+Backups must match the complete checkpoint before publication, and a copied restore
+stage must match the validated backup before its atomic swap. Reopen the manager
+if another writer changes the save while it is open.
+
+Validation uses synthetic saves, disposable complete island copies, repeated full
+roster deletion/addition, calendar edge cases, whole-file comparisons, backup and
+encrypted reload checks. See dm/games/01006F8002326000/README.md for evidence and
+the completed validation scope.
+
+This unsigned iPad/iPhone update reuses the same installed bulk resources and
+resident catalog. It replaces the executable and bundle version. Use the same
+sideloading identity and bundle identifier as the existing app to retain its data
+container. No device application is signed or installed by the build process.
+
+Corresponding source preserves upstream attribution and component licenses. Game
+resources, generated templates, player saves and personal information are excluded.

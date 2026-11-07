@@ -1,0 +1,29 @@
+AnimalDuo resident backup recovery
+Application build: 3.0.66
+Game version: 3.0.3
+Project release: 1.1 (the v1.1 tag remains application 3.0.59)
+
+An unreadable current main/header no longer hides existing resident backups.
+File-level checkpoints and restoration are separate from the strict resident
+reader; damaged data never becomes editable through this recovery path.
+
+The selected complete backup must pass its inventory and the existing game-version
+and integrity checks. Current files that cannot be read as a resident document are
+preserved separately under resident-backups/Unverified before the atomic restore.
+Their payload, including any pre-existing metadata, is retained. Unverified
+preservations are excluded from restore choices. Unsafe paths, pending writes,
+changed source files and invalid selected backups still refuse the operation.
+
+Success is published only after the operation and following reload both succeed.
+The backup/recovery interface remains on the existing asynchronous worker.
+
+Validation uses synthetic corruption/missing-file cases and disposable real save
+copies, full-tree comparisons, stale-source and copied-file fault checks. See
+dm/games/01006F8002326000/README.md for complete results and scope.
+
+This unsigned iPad/iPhone update reuses installed bulk resources and the resident
+catalog. Use the same sideloading identity and bundle identifier to retain the
+existing data container. No physical device app is signed or installed.
+
+Corresponding source retains attribution and component licenses. Game resources,
+generated templates, player saves, personal information and raw logs are excluded.
