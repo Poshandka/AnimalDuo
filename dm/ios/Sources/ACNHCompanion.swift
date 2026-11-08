@@ -35,6 +35,7 @@ struct CompanionMarker: Identifiable {
     @Published var islandName = ""
     @Published var controlsHidden = false
     @Published var externalController = false
+    @Published var dockInsets = EdgeInsets()
     @Published private(set) var presented = true
     var uiActivity: ((Int, Bool) -> Void)?
     private var nativeActivity = false
@@ -42,6 +43,7 @@ struct CompanionMarker: Identifiable {
     private let send: Sender
     let load: ImageLoader
     private var timer: Timer?
+    private var interactionSamples: AnyCancellable?
     private let native: DMCompanion?
     init(reader: Reader? = nil, sender: Sender? = nil, images: ImageLoader? = nil) {
         let engine = reader == nil ? DMCompanion.shared() : nil
@@ -51,6 +53,10 @@ struct CompanionMarker: Identifiable {
         load = images ?? { key, completion in
             guard let engine else { completion(nil, 0, 0); return }
             engine.image(key) { data, w, h in completion(data, Int(w), Int(h)) }
+        }
+        if let engine {
+            interactionSamples = NotificationCenter.default.publisher(for: Notification.Name("DmCompanionInteractionSampled"), object: engine)
+                .sink { [weak self] _ in Task { @MainActor in self?.poll() } }
         }
         engine?.start()
         poll()
@@ -150,13 +156,18 @@ public func dmCompanionUIState(_ hidden: Int32, _ physical: Int32, _ presented: 
     guard let model=activeCompanionModel else{return}
     model.setPresentation(controlsHidden: hidden != 0, physicalController: physical != 0, presented: presented != 0)
 }
+@MainActor @_cdecl("dm_companion_ui_dock_insets")
+public func dmCompanionUIDockInsets(_ left: Double, _ right: Double, _ bottom: Double) {
+    let insets=EdgeInsets(top:0,leading:left,bottom:bottom,trailing:right)
+    if let model=activeCompanionModel,model.dockInsets != insets {model.dockInsets=insets}
+}
 @MainActor
 @_cdecl("dm_companion_view_controller")
 public func dmCompanionViewController() -> UnsafeMutableRawPointer {
     let model=CompanionModel();activeCompanionModel=model
     model.uiActivity={dm_companion_ui_activity(Int32($0),$1 ? 1:0)}
     model.updateNativeActivity(force:true)
-    let controller = GameHostingController(rootView: ACNHCompanionView(model: model))
+    let controller = GameHostingController(rootView: ACNHCompanionView(model: model),fullCanvas:true)
     controller.view.clipsToBounds = true
     return Unmanaged.passRetained(controller).toOpaque()
 }

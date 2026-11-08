@@ -75,6 +75,8 @@ struct EdenWidgetTemplate {
         instances=(0..<limit).map{EdenFrame.expand(raw,$0) as! [String:Any]}
     }
 }
+private let edenDockArtworkPrefix="module:acnh/ui/dock?"
+
 final class EdenManifest {
     static let shared=EdenManifest()
     let root:[String:Any]
@@ -82,6 +84,7 @@ final class EdenManifest {
     let derived:[String:[String:Any]]
     let expressions:[String:EdenExpression]
     let widgets:[String:[EdenWidgetTemplate]]
+    let footerWidgets:[String:ClosedRange<Int>]
     let widePockets: Bool
     init(data:Data?=nil) {
         let bytes=data ?? Bundle.main.url(forResource:"companion-ui",withExtension:"json",subdirectory:"dm").flatMap{try? Data(contentsOf:$0)}
@@ -94,13 +97,47 @@ final class EdenManifest {
             pockets[19 + slot * 15]["id"] as? String == "bag_slot_\(slot)" &&
             pockets[617 + slot * 18]["need_bind"] as? String == "bag.\(slot).count"
         }
+        // The dock and its tabs are authored together. Some DIY detail widgets
+        // also have large y coordinates and must never enter this layer.
+        let dockWidgets=pages.compactMapValues { page -> ClosedRange<Int>? in
+            let items=(page["widgets"] as? [[String:Any]]) ?? []
+            guard let first=items.firstIndex(where:{($0["src"] as? String)?.hasPrefix(edenDockArtworkPrefix)==true}),
+                  let last=items.lastIndex(where:{($0["on_tap"] as? String)?.hasPrefix("tab.")==true}),
+                  first<=last else { return nil }
+            return first...last
+        }
+        footerWidgets=dockWidgets
         // Only immutable manifest templates are expanded here. Live visibility,
         // geometry, counts and input authorization are still evaluated per frame.
         widgets=pages.mapValues { page in
-            ((page["widgets"] as? [[String:Any]]) ?? []).enumerated().compactMap { index,raw in
+            let pageID=page["id"] as? String ?? ""
+            let dock=dockWidgets[pageID]
+            return ((page["widgets"] as? [[String:Any]]) ?? []).enumerated().compactMap { index,raw in
                 let rect=EdenFrame.rectangle(raw["rect"])
                 // Upstream's one-pixel waiting art prewarm is intentionally omitted.
-                return rect.width==1 && rect.height==1 ? nil:EdenWidgetTemplate(index,raw)
+                guard rect.width != 1 || rect.height != 1 else { return nil }
+                var widget=raw
+                if pageID=="today" {
+                    if raw["src"] as? String == "module:acnh/ui/disc?d=150&c=faffe6",
+                       rect.minX==433 && (rect.minY==23 || rect.minY==27) { return nil }
+                    if raw["src_bind"] as? String == "wx.icon" {
+                        let badge=rect.insetBy(dx:-20,dy:-20)
+                        widget["type"]="weather_badge"
+                        widget["rect"]=[badge.minX,badge.minY,badge.width,badge.height]
+                    }
+                }
+                if dock?.contains(index)==true {
+                    // Use the authored shadow tint instead of painting a second icon.
+                    if let source=raw["src"] as? String,source.hasPrefix("module:acnh/ui/tabicon/"),
+                       raw["color"] as? String == "#4004554F" {
+                        widget["src"]=source+(source.contains("?") ? "&" : "?")+"sc=04554f40"
+                    }
+                    // The calibrated selection plate is light enough for dark text.
+                    if raw["type"] as? String == "label",raw["color"] as? String == "#FFFFF1C3" {
+                        widget["color"]="#FF423420"
+                    }
+                }
+                return EdenWidgetTemplate(index,widget)
             }
         }
         let entries=(root["derived"] as? [[String:Any]]) ?? []
@@ -147,6 +184,7 @@ struct EdenNode:Identifiable {
     var action:String {data["on_tap"] as? String ?? ""}
     var payload:Int {Int((data["payload"] as? String).flatMap(Double.init) ?? (data["payload"] as? NSNumber)?.doubleValue ?? 0)}
     var draggable:Bool {data["draggable"] as? Bool==true}
+    var isDockArtwork:Bool {kind=="image" && (data["src"] as? String)?.hasPrefix(edenDockArtworkPrefix)==true}
     var coversBody:Bool {
         kind=="rect" && data["input_block"] as? Bool==true && clip==nil &&
             rect.minX==0 && rect.minY==0 && rect.width>=1240 && rect.height>=960 && rect.height<=968
@@ -269,6 +307,15 @@ struct EdenFrame {
         let reflowed = spec["id"] as? String == "diy" && wideRecipes
         return Self.rectangle(spec["rect"]).offsetBy(dx:reflowed ? 0 : extraWidth/2,dy:0)
     }
+    func sections(_ nodes:[EdenNode]) -> (body:[EdenNode], footer:[EdenNode]) {
+        let dock=bindings.manifest.footerWidgets[page]
+        var body:[EdenNode]=[],footer:[EdenNode]=[]
+        for n in nodes {
+            if dock?.contains(n.id/256) ?? (n.rect.minY>=960) {footer.append(n)}
+            else if n.rect.minY<960 {body.append(n)}
+        }
+        return (body,footer)
+    }
     private static func wideRect(_ rect:CGRect,kind:String,index:Int,page:String,width:Double,
                                  widePockets:Bool,wideRecipes:Bool) -> CGRect {
         guard rect.minY < 960 else { return rect }
@@ -276,10 +323,6 @@ struct EdenFrame {
         if rect.minX == 0 && rect.minY == 0 && rect.width == 1240 {
             // Keep the full-surface art recognizable to the background pass.
             if kind != "image" { rect.size.width += width }
-            return rect
-        }
-        if (page == "map" || page == "diy") && rect.minX == 12 && rect.width == 1216 {
-            rect.size.width += width
             return rect
         }
         var shift = width/2
@@ -341,22 +384,64 @@ struct EdenFrame {
 
 // Body and navigation have independent transforms so navigation always stays at the bottom.
 struct EdenSurfaceLayout {
-    let body:CGRect,footer:CGRect,content:CGRect,left:CGRect,right:CGRect
+    let body:CGRect,footer:CGRect,navArt:CGRect,navControls:CGRect,content:CGRect,left:CGRect,right:CGRect
     let bodyScale:Double,navScale:Double
     let bodyOffset:CGPoint,navOffset:CGPoint
     let extraWidth:Double
-    init(_ size:CGSize, controls:Bool=false, expand:Bool=false) {
-        let shared=dm_companion_surface_make(size,controls ? 1:0)
-        body=shared.body;footer=shared.footer;content=shared.content;left=shared.left;right=shared.right
+    init(_ size:CGSize, controls:Bool=false, expand:Bool=false, dockInsets:EdgeInsets=EdgeInsets()) {
+        let insets=dm_companion_dock_insets(left:dockInsets.leading,right:dockInsets.trailing,bottom:dockInsets.bottom)
+        let shared=dm_companion_surface_make_safe(size,controls ? 1:0,insets)
+        body=shared.body;footer=shared.footer;navArt=shared.nav_art;navControls=shared.nav_controls
+        content=shared.content;left=shared.left;right=shared.right
         bodyScale=shared.body_scale
         let extra = shared.body_scale > 0 ? max(0, shared.body.width / shared.body_scale - 1240) : 0
         extraWidth = expand && !controls && extra >= 48 ? extra : 0
         bodyOffset = CGPoint(x:shared.body_offset.x-extraWidth*bodyScale/2,y:shared.body_offset.y)
         navScale=shared.nav_scale;navOffset=shared.nav_offset
     }
+    func bodyArtwork(_ nodes:[EdenNode]) -> (background:EdenNode?, content:[EdenNode]) {
+        let background = nodes.first {
+            $0.kind == "image" && $0.rect == CGRect(x:0,y:0,width:1240,height:1080)
+        }
+        // The wallpaper is painted once. Alternate themes supply their outer
+        // panel and its shadow separately from the widgets within the page.
+        let content=nodes.filter { node in
+            guard node.id != background?.id else { return false }
+            guard node.kind=="image",let source=node.data["src"] as? String else { return true }
+            let rect=EdenFrame.rectangle(node.data["rect"])
+            guard rect.minX==12 && rect.width==1216 && rect.height==948 else { return true }
+            return !(rect.minY==12 && source.hasPrefix("module:acnh/ui/panel/") ||
+                     rect.minY==18 && source.hasPrefix("module:acnh/ui/card?"))
+        }
+        return (background,content)
+    }
+    static func wallpaperRect(_ source:String,size:CGSize) -> CGRect {
+        switch source {
+        case "module:acnh/bg/0/map", "module:acnh/bg/0/critters", "module:acnh/bg/0/diy":
+            // These original textures contain a rounded panel baked into the
+            // 1240 x 1080 canvas. Fill from its interior without copying pixels.
+            let x=size.width/1112,y=size.height/844
+            return CGRect(x:-64*x,y:-64*y,width:1240*x,height:1080*y)
+        default:
+            return CGRect(origin:.zero,size:size)
+        }
+    }
     func point(_ p:CGPoint)->CGPoint {
-        let nav=p.y>=footer.minY,s=nav ? navScale:bodyScale,o=nav ? navOffset:bodyOffset
-        return CGPoint(x:(p.x-o.x)/s,y:(p.y-o.y)/s)
+        let nav=p.y>=footer.minY,o=nav ? navOffset:bodyOffset
+        let scale=nav ? navScale:bodyScale
+        return CGPoint(x:(p.x-o.x)/scale,y:(p.y-o.y)/scale)
+    }
+    func bodyDistance(_ translation:CGSize) -> Double {
+        hypot(translation.width,translation.height)/bodyScale
+    }
+    var touchShape:Path {
+        Path { path in path.addRect(body);path.addRect(navControls) }
+    }
+    var dockShape:Path {
+        // Only the exposed top corners are rounded. The window clips the
+        // flush bottom edge to the actual display or scene corner shape.
+        let radius=min(18,navControls.height*0.28)
+        return UnevenRoundedRectangle(topLeadingRadius:radius,topTrailingRadius:radius,style:.continuous).path(in:footer)
     }
     var bodyCoverRect:CGRect {
         CGRect(x:(body.minX-bodyOffset.x)/bodyScale,y:(body.minY-bodyOffset.y)/bodyScale,
@@ -367,7 +452,7 @@ struct EdenSurfaceLayout {
         // The authored navigation art is letterboxed inside the physical bar.
         // Its entire height selects the same row, including the compact-width
         // top/bottom padding. Body coordinates and drag transforms stay exact.
-        if footer.contains(p){logical.y=968+112/2}
+        if navControls.contains(p){logical.y=968+112/2}
         return logical
     }
 }
@@ -378,6 +463,8 @@ struct EdenSurfaceLayout {
     private var visible:[String:CGImage]=[:],visibleBytes=0
     private var pending=Set<String>(),failed:[String:Date]=[:]
     private var attempts:[String:Int]=[:],requested=Set<String>()
+    private var queue:[String]=[],nextImage=0
+    private let requestLimit=2
     private var retry:Task<Void,Never>?
     private var retryAt:Date?,retryGeneration=0
     init(){cache.totalCostLimit=96*1024*1024;cache.countLimit=1024}
@@ -397,18 +484,18 @@ struct EdenSurfaceLayout {
     }
     private func cancelRetry() {retryGeneration+=1;retry?.cancel();retry=nil;retryAt=nil}
     func suspend() {
-        requested=[];cancelRetry()
+        requested=[];queue=[];nextImage=0;cancelRetry()
         let parked=visible;visible=[:];visibleBytes=0;updateBudget()
         for (key,image) in parked{cache.setObject(image,forKey:key as NSString,cost:image.bytesPerRow*image.height)}
         failed.removeAll();attempts.removeAll()
     }
-    func trim() { cancelRetry();visible.removeAll();visibleBytes=0;cache.removeAllObjects();updateBudget();failed.removeAll();attempts.removeAll();epoch+=1 }
+    func trim() { requested=[];queue=[];nextImage=0;cancelRetry();visible.removeAll();visibleBytes=0;cache.removeAllObjects();updateBudget();failed.removeAll();attempts.removeAll();epoch+=1 }
     private func retryMissing(_ model:CompanionModel) {
-        let deadlines=requested.compactMap { key -> Date? in
+        let deadlines=failed.compactMap { key,time -> Date? in
             guard !pending.contains(key) else{return nil}
-            return failed[key].map { $0.addingTimeInterval(min(30,pow(2,Double(attempts[key] ?? 1)))) }
+            return time.addingTimeInterval(min(30,pow(2,Double(attempts[key] ?? 1))))
         }
-        guard model.presented,let deadline=deadlines.min() else{cancelRetry();return}
+        guard model.presented,pending.count<requestLimit,let deadline=deadlines.min() else{cancelRetry();return}
         if let scheduled=retryAt,scheduled<=deadline{return}
         // A newly missing asset may need an earlier retry than an older failure.
         // Superseded tasks must not clear a newer request's scheduler state.
@@ -418,20 +505,30 @@ struct EdenSurfaceLayout {
         retry=Task { @MainActor [weak self,weak model] in
             do { try await Task.sleep(for:.seconds(delay)) } catch {return}
             guard !Task.isCancelled,let self,let model,self.retryGeneration==generation else{return};self.retry=nil;self.retryAt=nil
-            if model.presented {self.request(self.requested,model)}
+            if model.presented {self.nextImage=0;self.loadAvailable(model)}
         }
     }
-    func request(_ keys:Set<String>,_ model:CompanionModel) {
-        guard model.presented else{suspend();return};requested=keys
+    func request(_ keys:[String],_ model:CompanionModel) {
+        guard model.presented else{suspend();return}
+        queue=keys;nextImage=0;requested=Set(keys)
         // NSCache may discard objects at any time. Keep the current frame's images
         // alive independently; release those pins as soon as their keys leave view.
-        let previous=visible;visible=visible.filter{keys.contains($0.key)}
+        let previous=visible;visible=visible.filter{requested.contains($0.key)}
         visibleBytes=visible.values.reduce(0){$0+$1.bytesPerRow*$1.height};updateBudget()
-        for (key,image) in previous where !keys.contains(key){cache.setObject(image,forKey:key as NSString,cost:image.bytesPerRow*image.height)}
+        for (key,image) in previous where !requested.contains(key){cache.setObject(image,forKey:key as NSString,cost:image.bytesPerRow*image.height)}
         for key in keys where visible[key]==nil{if let image=cache.object(forKey:key as NSString){pin(image,key)}}
-        failed=failed.filter{keys.contains($0.key)};attempts=attempts.filter{keys.contains($0.key)}
-        for key in keys where key.hasPrefix("module:") && get(key)==nil && !pending.contains(key) {
-            if let time=failed[key],Date().timeIntervalSince(time)<min(30,pow(2,Double(attempts[key] ?? 1))){continue};pending.insert(key)
+        failed=failed.filter{requested.contains($0.key)};attempts=attempts.filter{requested.contains($0.key)}
+        loadAvailable(model)
+    }
+    private func loadAvailable(_ model:CompanionModel) {
+        guard model.presented else { return }
+        // The native decoder is serial. Leave at most one extra job queued so
+        // obsolete page requests cannot occupy the worker after a tab change.
+        while pending.count<requestLimit && nextImage<queue.count {
+            let key=queue[nextImage];nextImage+=1
+            guard key.hasPrefix("module:"),get(key)==nil,!pending.contains(key) else { continue }
+            if let time=failed[key],Date().timeIntervalSince(time)<min(30,pow(2,Double(attempts[key] ?? 1))){continue}
+            pending.insert(key)
             model.load(key){[weak self] data,w,h in
                 var image:CGImage?
                 if let data,w>0,h>0,w<=4096,h<=4096,data.count==w*h*4,let provider=CGDataProvider(data:data as CFData) {
@@ -442,10 +539,11 @@ struct EdenSurfaceLayout {
                 let result=image
                 Task{@MainActor in
                     guard let self else{return};self.pending.remove(key)
-                    guard model.presented,self.requested.contains(key) else{return}
-                    if let result{self.pin(result,key);self.failed.removeValue(forKey:key);self.attempts.removeValue(forKey:key);self.epoch+=1}
-                    else{self.failed[key]=Date();self.attempts[key]=min(6,(self.attempts[key] ?? 0)+1)}
-                    self.retryMissing(model)
+                    if model.presented,self.requested.contains(key) {
+                        if let result{self.pin(result,key);self.failed.removeValue(forKey:key);self.attempts.removeValue(forKey:key);self.epoch+=1}
+                        else{self.failed[key]=Date();self.attempts[key]=min(6,(self.attempts[key] ?? 0)+1)}
+                    }
+                    self.loadAvailable(model)
                 }
             }
         }
@@ -570,11 +668,32 @@ private func edenLabelKey(_ text:String,_ scale:Double,_ color:Any?)->String {
         }
     }
     private func renderNodes(_ f:EdenFrame)->[EdenNode] {var a:[EdenNode]=[];for n in f.nodes {if n.kind=="map"{a.append(contentsOf:mapNodes(n,f))};a.append(n)};a+=extraNodes(f);return a}
-    private func assetKeys(_ nodes:[EdenNode],_ f:EdenFrame)->Set<String> {
-        var keys=Set<String>()
-        for n in nodes {if n.kind=="image"{let k=f.source(n);if !k.isEmpty{keys.insert(k)}}
-            if n.kind=="label" || n.kind=="value" {let s=(n.data["text_scale"] as? NSNumber)?.doubleValue ?? 4;for line in labelLines(f.text(n),n) where !line.isEmpty{keys.insert(edenLabelKey(line,s,n.data["color"]))}}
-        };return keys
+    private func assetKeys(_ nodes:[EdenNode],_ f:EdenFrame,wallpaper:String?)->[String] {
+        var keys=wallpaper.map { [$0] } ?? []
+        var labels:[String]=[]
+        for n in nodes {
+            if n.kind=="image" || n.kind=="weather_badge" { keys.append(f.source(n)) }
+            if n.kind=="label" || n.kind=="value" {
+                let scale=(n.data["text_scale"] as? NSNumber)?.doubleValue ?? 4
+                for line in labelLines(f.text(n),n) where !line.isEmpty {
+                    labels.append(edenLabelKey(line,scale,n.data["color"]))
+                }
+            }
+        }
+        var seen=Set<String>()
+        return (keys+labels).filter { !$0.isEmpty && seen.insert($0).inserted }
+    }
+    private func drawWeatherBadge(_ key:String,in rect:CGRect,context:inout GraphicsContext) {
+        context.fill(Path(ellipseIn:rect.offsetBy(dx:0,dy:4)),with:.color(edenColor("#3004554F")))
+        context.fill(Path(ellipseIn:rect),with:.color(edenColor("#FFFAFFE6")))
+        context.stroke(Path(ellipseIn:rect.insetBy(dx:5,dy:5)),with:.color(edenColor("#FFCBDDBD")),lineWidth:2)
+        guard let image=images.get(key) else { return }
+        // TV forecasts include a coloured square; the fallback symbol already
+        // has a transparent background and needs more room around its edges.
+        let inset=key.hasPrefix("module:acnh/ui/today/wx/") ? 13.0 : 26.0
+        let art=rect.insetBy(dx:inset,dy:inset)
+        context.clip(to:Path(ellipseIn:art))
+        context.draw(Image(decorative:image,scale:1),in:art)
     }
     private func draw(_ nodes:[EdenNode],_ f:EdenFrame,_ context:inout GraphicsContext,bodyCover:(GraphicsContext,CGRect)?=nil) {
         for n in nodes {
@@ -583,6 +702,7 @@ private func edenLabelKey(_ text:String,_ scale:Double,_ color:Any?)->String {
             if let clip=n.clip{c.clip(to:Path(clip))};let d=n.data
             switch n.kind {
             case "image":if let im=images.get(f.source(n)){c.draw(Image(decorative:im,scale:1),in:r)}
+            case "weather_badge":drawWeatherBadge(f.source(n),in:r,context:&c)
             case "label","value":
                 let scale=(d["text_scale"] as? NSNumber)?.doubleValue ?? 4,cap=scale*5,align=d["align"] as? String ?? "left"
                 for (i,line) in labelLines(f.text(n),n).enumerated() where !line.isEmpty {
@@ -604,7 +724,7 @@ private func edenLabelKey(_ text:String,_ scale:Double,_ color:Any?)->String {
             default:break
             }
         }
-        if let dragging,dragging.draggable,dragPoint != .zero,let im=images.get(f.source(dragging)) {
+        if bodyCover != nil,let dragging,dragging.draggable,dragPoint != .zero,let im=images.get(f.source(dragging)) {
             var c=context;c.opacity=0.87;c.draw(Image(decorative:im,scale:1),in:CGRect(x:dragPoint.x-dragging.rect.width*0.6,y:dragPoint.y-dragging.rect.height*0.6,width:dragging.rect.width*1.2,height:dragging.rect.height*1.2))
         }
     }
@@ -680,36 +800,45 @@ private func edenLabelKey(_ text:String,_ scale:Double,_ color:Any?)->String {
         GeometryReader{geometry in
             #if os(iOS)
             let controller = gestureController ?? model.externalController
-            let layout=EdenSurfaceLayout(geometry.size,controls:!controller,expand:controller)
+            let layout=EdenSurfaceLayout(geometry.size,controls:!controller,expand:controller,dockInsets:model.dockInsets)
             #else
             let layout=EdenSurfaceLayout(geometry.size)
             #endif
             let f=EdenFrame(model:model,manifest:manifest,local:local,extraWidth:layout.extraWidth)
-            let nodes=renderNodes(f)
-            let bodyNodes=nodes.filter{$0.rect.minY<960},navNodes=nodes.filter{$0.rect.minY>=960}
-            let keys=assetKeys(nodes,f)
+            let (bodyNodes,footerNodes)=f.sections(renderNodes(f))
+            let hasDock=footerNodes.contains(where: { $0.isDockArtwork })
+            let navNodes=footerNodes.filter { !$0.isDockArtwork }
+            let artwork=layout.bodyArtwork(bodyNodes)
+            let wallpaper=artwork.background.map(f.source)
+            let nodes=artwork.content+navNodes
+            let keys=assetKeys(navNodes+artwork.content,f,wallpaper:wallpaper)
             Canvas{context,_ in
-                // Bleed the original background to every edge; content retains its aspect.
-                if let background=bodyNodes.first(where:{$0.kind=="image" && $0.rect.width==1240 && $0.rect.height==1080}),let image=images.get(f.source(background)) {
-                    context.draw(Image(decorative:image,scale:1),in:CGRect(origin:.zero,size:geometry.size))
+                // The same wallpaper fills the body, the side rails and the footer.
+                if let wallpaper,let image=images.get(wallpaper) {
+                    var backdrop=context;backdrop.clip(to:Path(CGRect(origin:.zero,size:geometry.size)))
+                    backdrop.draw(Image(decorative:image,scale:1),in:EdenSurfaceLayout.wallpaperRect(wallpaper,size:geometry.size))
                 }
                 // Occupancy/menu scrims cover the complete physical body, under
                 // the separately hosted controls. Foreground cards keep their
                 // fitted centre transform and navigation remains accessible.
                 var cover=context;cover.clip(to:Path(layout.body));cover.translateBy(x:layout.bodyOffset.x,y:layout.bodyOffset.y);cover.scaleBy(x:layout.bodyScale,y:layout.bodyScale)
-                var body=context;body.clip(to:Path(layout.content));body.translateBy(x:layout.bodyOffset.x,y:layout.bodyOffset.y);body.scaleBy(x:layout.bodyScale,y:layout.bodyScale);draw(bodyNodes,f,&body,bodyCover:(cover,layout.bodyCoverRect))
-                var nav=context;nav.clip(to:Path(layout.footer));nav.translateBy(x:layout.navOffset.x,y:layout.navOffset.y);nav.scaleBy(x:layout.navScale,y:layout.navScale);draw(navNodes,f,&nav)
+                var body=context;body.clip(to:Path(layout.content));body.translateBy(x:layout.bodyOffset.x,y:layout.bodyOffset.y);body.scaleBy(x:layout.bodyScale,y:layout.bodyScale);draw(artwork.content,f,&body,bodyCover:(cover,layout.bodyCoverRect))
+                if hasDock {context.fill(layout.dockShape,with:.color(edenColor("#FFFFFBE8")))}
+                var nav=context;nav.clip(to:Path(layout.navArt));nav.translateBy(x:layout.navOffset.x,y:layout.navOffset.y);nav.scaleBy(x:layout.navScale,y:layout.navScale);draw(navNodes,f,&nav)
 
             }
             .background(edenColor(manifest.root["background"],"#FFFFF1C3"))
-            .contentShape(Rectangle())
+            .contentShape(layout.touchShape)
             .gesture(DragGesture(minimumDistance:0).updating($dragTouch){_,active,_ in active=true}.onChanged{g in
+                let inBody=layout.body.contains(g.startLocation)
+                guard inBody || layout.navControls.contains(g.startLocation) else { return }
                 beginInteraction()
+                guard inBody && layout.body.contains(g.location) else { return }
                 let p=layout.point(g.location),start=layout.point(g.startLocation)
                 if !dragStarted {
                     dragStarted = true
                     dragSequence &+= 1
-                    dragging=gestureHit(start,nodes,f)
+                    dragging=gestureHit(start,bodyNodes,f)
                     dragToken=dragging.map{model.pocketToken($0.payload)} ?? ""
                     startPan=mapPan
                     if let scroll=f.scrolls.first(where:{f.scrollRect($0).contains(start)}),
@@ -718,7 +847,7 @@ private func edenLabelKey(_ text:String,_ scale:Double,_ color:Any?)->String {
                                         max(0,(local["@scroll:"+id] ?? 0)*f.scrollScale(id)))
                     }
                 }
-                let distance=hypot(g.translation.width,g.translation.height)/layout.bodyScale
+                let distance=layout.bodyDistance(g.translation)
                 if distance>12,let dragging,dragging.draggable{dragPoint=p}
                 else if distance>12,let scroll=f.scrolls.first(where:{f.scrollRect($0).contains(start)}),
                         let id=scroll["id"] as? String {
@@ -727,15 +856,21 @@ private func edenLabelKey(_ text:String,_ scale:Double,_ color:Any?)->String {
                     local["@scroll:"+id] = offset / f.scrollScale(id)
                 } else if distance>12,dragging?.kind=="map"{mapPan=clampedPan(CGSize(width:startPan.width+p.x-start.x,height:startPan.height+p.y-start.y),f)}
             }.onEnded{g in
-                let p=layout.point(g.location),distance=hypot(g.translation.width,g.translation.height)/layout.bodyScale
+                defer {
+                    clearDrag()
+                    if !pinchTouch { endInteraction() }
+                }
+                let p=layout.point(g.location),distance=layout.bodyDistance(g.translation)
+                let inBody=layout.body.contains(g.location),inFooter=layout.navControls.contains(g.location)
                 if distance>12,let source=dragging,source.draggable {
-                    if let target=nodes.reversed().first(where:{$0.contains(p) && $0.data["drop_action"] != nil}) {
+                    if inBody,let target=bodyNodes.reversed().first(where:{$0.contains(p) && $0.data["drop_action"] != nil}) {
                         if let name=target.data["drop_action"] as? String,name.hasPrefix("bag.drop."),let slot=Int(name.dropFirst(9)),source.payload<40{_ = model.movePocket(from:source.payload,to:slot,expected:dragToken)}
                         else {var data=target.data;data["on_tap"]=data["drop_action"];data["payload"]=String(source.payload);action(EdenNode(id:target.id,data:data,rect:target.rect,clip:target.clip),f)}
                     }
-                } else if distance<=12{tap(layout.tapPoint(g.location),nodes,f)}
-                clearDrag()
-                if !pinchTouch { endInteraction() }
+                } else if distance<=12 {
+                    if inFooter && layout.navControls.contains(g.startLocation){tap(layout.tapPoint(g.location),navNodes,f)}
+                    else if inBody && layout.body.contains(g.startLocation){tap(p,bodyNodes,f)}
+                }
             })
             .simultaneousGesture(MagnificationGesture().updating($pinchTouch){_,active,_ in active=true}.onChanged{v in beginInteraction();if f.page=="map" {mapZoom=min(3,max(1,pinchStart*v));mapPan=clampedPan(mapPan,f)}}.onEnded{_ in pinchStart=mapZoom})
             .accessibilityRepresentation {

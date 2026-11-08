@@ -53,6 +53,25 @@ extension EdenImages {
         images.request(["module:second"],model)
         delayed?(pixels,1,1);delayed=nil;await settle();images.discardWarmImagesForTest()
         assert(images.get("module:delayed")==nil && images.get("module:second") != nil)
+        var order:[String]=[]
+        var completions:[String:(Data?,Int,Int)->Void]=[:]
+        let slowModel=CompanionModel(reader:{["acnh.ready":1]},sender:{_,_ in},images:{key,done in
+            order.append(key);completions[key]=done
+        })
+        let switching=EdenImages()
+        switching.request((0..<40).map {"module:old\($0)"},slowModel)
+        assert(order==["module:old0","module:old1"])
+        switching.request(["module:wallpaper","module:tab","module:item"],slowModel)
+        completions.removeValue(forKey:"module:old0")?(pixels,1,1);await settle()
+        assert(order==["module:old0","module:old1","module:wallpaper"])
+        completions.removeValue(forKey:"module:old1")?(pixels,1,1);await settle()
+        assert(order.last=="module:tab" && switching.get("module:old1")==nil)
+        completions.removeValue(forKey:"module:wallpaper")?(pixels,1,1);await settle()
+        assert(order.last=="module:item" && switching.get("module:wallpaper") != nil)
+        slowModel.visible(false);switching.suspend()
+        completions.removeValue(forKey:"module:tab")?(pixels,1,1)
+        completions.removeValue(forKey:"module:item")?(pixels,1,1);await settle()
+        assert(switching.get("module:item")==nil)
         for i in 0..<32{images.request(["module:bad\(i)"],model);await settle();assert(images.failureCountForTest<=1)}
         images.trim();images.seedFailureForTest("module:slow",5,0)
         images.request(["module:slow","module:fast"],model);await settle()

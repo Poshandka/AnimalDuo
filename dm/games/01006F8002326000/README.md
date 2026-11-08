@@ -656,6 +656,22 @@ Read-only device diagnostics do not yet locate the player's reported crash. The 
 
 Application 3.0.53 uses the horizontal space released by an external controller on the iPad and Duo companion. See [Companion content leaves empty sides with a controller](../../../docs/reference/services.md#companion-content-leaves-empty-sides-with-a-controller).
 
+Application 3.0.69 draws the controller-mode backdrop edge to edge in a single pass. The portrait editor scales the left and right rings and knobs across the full size slider while the fitted rail geometry bounds touch ownership. The analog throw and the slow-walk radius follow the visible ring. [Touch layout details](../../../docs/reference/services.md#editable-touch-control-geometry)
+
+Application 3.0.70 extends portrait size adjustment to the face buttons, D-pad, shoulders, menu pills and stick clicks. Each group grows within its available space beside the companion. [Touch layout details](../../../docs/reference/services.md#editable-touch-control-geometry)
+
+Application 3.0.71 adds clearance above the dock and lays out both touch rails above it. The face diamond has more room between adjacent keys while retaining the existing size slider and diagonal input. [Touch layout details](../../../docs/reference/services.md#editable-touch-control-geometry)
+
+Application 3.0.72 removes the decorative companion perimeter in portrait and spreads Y and A horizontally within the right rail. The wallpaper continues across the touch columns and the dock gap. [Touch layout details](../../../docs/reference/services.md#editable-touch-control-geometry)
+
+Application 3.0.73 fills the bottom of the companion with the navigation dock and lets the window clip its physical corners. The tabs use the actual safe-area insets and the virtual controls reflow above the dock. [Companion layout details](../../../docs/reference/services.md#companion-content-leaves-empty-sides-with-a-controller)
+
+Application 3.0.74 centres the tabs in a shorter dock with a small bottom gesture inset. The companion artwork uses the reclaimed height, and the primary rows in the touch rails use even vertical spacing. [Companion layout details](../../../docs/reference/services.md#companion-content-leaves-empty-sides-with-a-controller)
+
+Application 3.0.75 keeps the original proportions of the companion foreground and centres it vertically above the dock. The dock's custom icons, selection capsules and labels use the [calibrated palette](../../../docs/reference/rendering.md#companion-layout-material-colours-treated-as-display-rgb).
+
+Application 3.0.76 [refreshes interactive snapshots as soon as they are published](../../../docs/reference/services.md#companion-page-waits-behind-old-image-requests) and limits the image work already queued at a tab change. The Today card presents the original TV forecast in a circular badge, with separate padding for the transparent fallback symbol.
+
 ## Entry fade coverage and stick-click spacing (2026-11-04)
 
 Application 3.0.54 includes the exact full-screen `P_Fade_00` picture from Fade and VideogameFade in the registered adapter's expanded-viewport coverage. It preserves fade colours, alpha, inactive UV slots and authored resources. See [Full-screen fade omits expanded scene margins](../../../docs/reference/services.md#full-screen-fade-omits-expanded-scene-margins).

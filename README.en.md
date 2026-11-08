@@ -1,6 +1,6 @@
 # AnimalDuo
 
-**AnimalDuo 1.2** corresponds to application build **3.0.68** for game **3.0.3**. It improves LAN recovery after brief backgrounding, restores the visitor companion display, improves resident editing and backup recovery, and adds an adjustable slow-walk zone. See the [release notes](RELEASES/1.2.md).
+**AnimalDuo 1.3** corresponds to application build **3.0.76** for game **3.0.3**. It improves companion interactions, refines portrait controls and the bottom dock, and puts the Today page's weather art in a circular badge. [Release notes](RELEASES/1.3.md)
 
 [简体中文](README.md) · English · [English source guide](PUBLIC-SOURCE.md)
 
@@ -14,14 +14,14 @@ The project builds on **nxnative**, using the native-execution approach originat
 
 ---
 
-**New in 1.2**
+**New in 1.3**
 
-- LAN sessions handle paused socket requests and recover discovery handles after brief backgrounding. Visitors can view all six companion pages on the host island.
-- Replacing an animal resets catchphrases, player nicknames and custom greetings. Existing residents have separate actions for restoring the default phrase or the default nicknames and greetings.
-- Resident edits check the complete save and respect pending housing assignments. Backup browsing and verified restoration are available when the current save cannot be read.
-- The touch layout editor adjusts how far the left stick travels before leaving the slow-walk zone. Landscape and portrait profiles store their settings separately.
+- Companion interactions refresh when the new snapshot arrives. Rapid tab changes give the current page's images priority.
+- Portrait content keeps its original proportions and centers above the compact dock. Connecting a physical controller fills the companion backdrop edge to edge.
+- Portrait sticks and buttons follow the size controls. The main controls are spaced more evenly down the sides, with more room between Y and A.
+- Dock colors are calibrated, and the Today page shows the game's forecast art in one circular badge.
 
-Local game tests covered four successive four-second absences across host and visitor, and measured the slow-walk input on a test island. Physical-device LAN recovery and cross-device iCloud transfer remain to be verified. The earlier fullscreen, transition and coordinated-wait changes are documented in the [1.1 release notes](RELEASES/1.1.md).
+Local checks cover companion interactions, portrait controls, an unsigned iOS build and Mac startup. Physical-device switching latency has yet to be measured. [1.2 release notes](RELEASES/1.2.md)
 
 ---
 
@@ -82,13 +82,13 @@ See the [Animal Crossing profile note](dm/games/01006F8002326000/README.md) for 
 
 **Get the source and build**
 
-[Download 1.2 source](https://github.com/ShawndYang/AnimalDuo/releases/tag/v1.2) · [English source and build guide](PUBLIC-SOURCE.md) · [Browse the repository](https://github.com/ShawndYang/AnimalDuo)
+[Download 1.3 source](https://github.com/ShawndYang/AnimalDuo/releases/tag/v1.3) · [English source and build guide](PUBLIC-SOURCE.md) · [Browse the repository](https://github.com/ShawndYang/AnimalDuo)
 
-Use the `v1.2` tag for the fixed release snapshot. The `main` branch is the development source. Commit-specific check results are available in [GitHub Actions](https://github.com/ShawndYang/AnimalDuo/actions).
+Use the `v1.3` tag for the fixed release snapshot. The `main` branch is the development source. Commit-specific check results are available in [GitHub Actions](https://github.com/ShawndYang/AnimalDuo/actions).
 
 **The download contains source code, not an installable game.**
 
-Both 1.1 (build 3.0.59) and 1.2 (build 3.0.68) use game 3.0.3. Back up the complete save first. Use the same installation identity and application container to reuse compatible resources. A first installation needs matching game resources. Regenerate the optional resident catalog with the 1.2 script to include all eleven phrase languages. Update both sides of a LAN visit to apply the recovery fixes on both devices.
+Both 1.2 (build 3.0.68) and 1.3 (build 3.0.76) use game 3.0.3. Back up the complete save first. Use the same installation identity and application container to reuse compatible resources. A first installation needs matching game resources.
 
 Report problems with the [issue form](https://github.com/ShawndYang/AnimalDuo/issues/new?template=bug_report.yml), including build, device/system and reproduction steps. Redact personal paths and device identifiers; do not attach saves, keys or signing material.
 

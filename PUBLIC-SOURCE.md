@@ -4,7 +4,7 @@
 
 ## Scope
 
-This is the AnimalDuo 1.2 source snapshot for application build 3.0.68 and Animal Crossing 3.0.3. It is based on nxnative revision b7a5cd43453722d448e07407d88a9c05ed294492 and preserves the original source and copyright notices. The tree contains the Animal Crossing profile and small tool-test fixtures. [Release notes](RELEASES/1.2.md)
+This is the AnimalDuo 1.3 source snapshot for application build 3.0.76 and Animal Crossing 3.0.3. It is based on nxnative revision b7a5cd43453722d448e07407d88a9c05ed294492 and preserves the original source and copyright notices. The tree contains the Animal Crossing profile and small tool-test fixtures. [Release notes](RELEASES/1.3.md)
 
 Included extensions:
 
@@ -44,11 +44,45 @@ New animals use the island's last saved calendar date. Editing checks pending NP
 
 The launcher's touch layout editor adjusts how far the left stick can travel before it leaves the slow-walk range. Each orientation stores a separate radius as a percentage of the outer ring. Existing profiles keep their linear response until the slider is moved. See [Editable touch control geometry](docs/reference/services.md#editable-touch-control-geometry).
 
+## AnimalDuo 1.3 / application build 3.0.76
+
+### Portrait companion and stick scaling / application build 3.0.69
+
+An attached controller lets the companion paint its backdrop across the full surface in one pass. The portrait size slider scales both sticks while their touch regions stay inside the side rails. The slow-walk radius follows the visible left ring. [Controller companion layout](dm/games/01006F8002326000/README.md#controller-companion-layout-2026-11-04)
+
+### Portrait button scaling / application build 3.0.70
+
+The portrait size slider adjusts the face buttons, D-pad, shoulders, menu pills and stick clicks. Each group grows within the available space in its side rail. The face outlines retain clearance and adjacent buttons still accept diagonal presses. The menu pills keep their 44-point minimum touch targets. [Touch layout details](docs/reference/services.md#editable-touch-control-geometry)
+
+### Portrait face spacing and dock clearance / application build 3.0.71
+
+The face diamond uses the vertical room above the plus button. The companion body and both touch rails end above the dock with a shared gap, and the wallpaper continues through the separation. The dock uses its authored navigation widgets. [Controller companion layout](dm/games/01006F8002326000/README.md#controller-companion-layout-2026-11-04)
+
+### Borderless portrait companion / application build 3.0.72
+
+A single wallpaper fills the companion surface. The original Map, Critters and DIY textures use their panel interiors, and alternate themes omit the decorative frame and shadow. The wider Y and A positions share their fitted touch geometry and stay inside the right rail. [Controller companion layout](dm/games/01006F8002326000/README.md#controller-companion-layout-2026-11-04)
+
+### Bottom-edge companion dock / application build 3.0.73
+
+The navigation plate fills the physical bottom edge. The window clips its bottom corners, and the tabs occupy a separate row that fits the safe area. The companion body and touch rails use the same dock height. [Controller companion layout](dm/games/01006F8002326000/README.md#controller-companion-layout-2026-11-04)
+
+### Compact portrait dock / application build 3.0.74
+
+The dock centres its visible tab artwork in a shorter bottom plate. A small bottom strip is reserved for gestures. The middle artwork extends into the reclaimed height and shares its vertical transform with input. The touch rails use an even pitch for their main rows. [Companion layout details](dm/games/01006F8002326000/README.md#controller-companion-layout-2026-11-04)
+
+### Centred portrait companion / application build 3.0.75
+
+Companion content fits proportionally and centres above the compact dock. The dock palette uses display sRGB colours, with the authored icon shadow and dark selected labels. [Companion layout details](dm/games/01006F8002326000/README.md#controller-companion-layout-2026-11-04)
+
+### Companion response and weather badge / application build 3.0.76
+
+The companion reads the first published snapshot after a user action and gives the visible page priority in its bounded image queue. The Today weather art uses a circular badge. [Companion layout details](dm/games/01006F8002326000/README.md#controller-companion-layout-2026-11-04)
+
 ## Inputs and build
 
 Supply your own game packages, console keys and matching update/DLC outside the source tree. No keys, game packages, game-derived dialogue overlays, resident save templates, player saves or ready-to-play IPA/Mac apps are included.
 
-Use Apple Silicon macOS, Xcode and the documented dependencies. The local 3.0.68 iOS build used Xcode 27.2, generic arm64 and minimum iOS 26. Historical Mac packaging used an Apple-m1 CPU baseline and minimum macOS 27. [Development guide](docs/development.md)
+Use Apple Silicon macOS, Xcode and the documented dependencies. The 3.0.76 iOS build used Xcode 27.2, generic arm64 and minimum iOS 26. Historical Mac packaging used an Apple-m1 CPU baseline and minimum macOS 27. [Development guide](docs/development.md)
 
 For the normal extraction/rewriter/shader preparation pipeline, run from this source root:
 
@@ -56,7 +90,7 @@ For the normal extraction/rewriter/shader preparation pipeline, run from this so
 
 For standard unsigned iOS or native Mac packaging, select --platform ios or --platform mac-app. Consult the script's --help and [the packing guide](docs/development.md#the-packing-script-in-detail). Keep all generated files on the external build volume.
 
-Generate the optional resident catalog with the 1.2 version of scripts/build_acnh_resident_catalog.py to include all eleven phrase languages. Use --help for the RomFS, template-source and output arguments. The script uses external game resources and the optional NHSE templates as inputs. Keep the generated files outside the repository and preserve NHSE's GPL notices with template-containing builds. [Pinned NHSE source at cb07454](https://github.com/kwsch/NHSE/tree/cb07454)
+Generate the optional resident catalog with scripts/build_acnh_resident_catalog.py to include all eleven phrase languages. Use --help for the RomFS, template-source and output arguments. The script uses external game resources and the optional NHSE templates as inputs. Keep the generated files outside the repository and preserve NHSE's GPL notices with template-containing builds. [Pinned NHSE source at cb07454](https://github.com/kwsch/NHSE/tree/cb07454)
 
 Before packaging with the resident manager enabled, generate and verify the starter-dialogue overlay:
 
@@ -71,7 +105,23 @@ The BUILD files describe earlier snapshots. The current build instructions and v
 
 ## Validation
 
-The published source uses the 3.0.68 runtime and build inputs. Local validation includes the unsigned iOS build, startup regression, a test-island slow-walk comparison and the earlier short-return LAN tests. Physical-device LAN recovery, cross-device iCloud transfer and a repeated-room loading incident remain open. [Source review](SOURCE-REVIEW.json) · [Game and validation notes](dm/games/01006F8002326000/README.md)
+The 3.0.76 build passed the native action notification, interrupted image queue, iOS and Mac startup checks. [Source review](SOURCE-REVIEW.json)
+
+The 3.0.75 build passed proportional geometry, touch mapping, native art palette and Mac startup checks. [Source review](SOURCE-REVIEW.json)
+
+The 3.0.74 tests compared the visible dock margins, the middle artwork and the touch rails across four Mac Catalyst portrait fixtures. The unsigned iOS build and Mac startup regression completed. [Source review](SOURCE-REVIEW.json)
+
+The 3.0.73 tests sampled the last visible dock row in a Mac Catalyst fixture, including rectangular and rounded window masks. They also checked tab placement with asymmetric safe areas and the physical-controller transition. The unsigned iOS build and Mac startup regression passed. [Source review](SOURCE-REVIEW.json)
+
+The 3.0.72 tests exercised the SwiftUI backdrop with two synthetic theme fixtures and controller states, and used the real UIKit pad to check Y and A spacing and touch dispatch. The unsigned iOS build and Mac startup regression passed. [Source review](SOURCE-REVIEW.json)
+
+The 3.0.71 checks covered portrait key spacing, touch dispatch, dock rendering, and the shared lower edge on a Mac Catalyst fixture with synthetic artwork and controller events. The unsigned iOS build and Mac startup regression passed. [Source review](SOURCE-REVIEW.json)
+
+The 3.0.70 checks exercised portrait scaling in the actual UIKit preview and pad, including button presses and releases. The Mac Catalyst fixture used synthetic controller events and companion artwork. The Mac startup regression and unsigned iOS build also passed. [Source review](SOURCE-REVIEW.json)
+
+The 3.0.69 portrait checks exercised the UIKit and SwiftUI views on a Mac Catalyst fixture with synthetic artwork and controller events, alongside the unsigned iOS build and the Mac startup regression. The iOS changes have yet to be verified on a physical device. [Source review](SOURCE-REVIEW.json)
+
+The published 1.2 release uses the 3.0.68 runtime and build inputs. Local validation includes the unsigned iOS build, startup regression, a test-island slow-walk comparison and the earlier short-return LAN tests. Physical-device LAN recovery, cross-device iCloud transfer and a repeated-room loading incident remain open. [Source review](SOURCE-REVIEW.json) · [Game and validation notes](dm/games/01006F8002326000/README.md)
 
 Hosted checks are reported per commit. [GitHub Actions](https://github.com/ShawndYang/AnimalDuo/actions)
 

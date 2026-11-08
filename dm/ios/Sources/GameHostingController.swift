@@ -8,8 +8,9 @@ final class GameHostingController<Content: View>: UIViewController {
     weak var orientationOwner: UIViewController?
     private var canvasObserver: NSObjectProtocol?
 
-    init(rootView: Content) {
+    init(rootView: Content, fullCanvas: Bool = false) {
         hosting = UIHostingController(rootView: rootView)
+        if fullCanvas { hosting.safeAreaRegions = [] }
         super.init(nibName: nil, bundle: nil)
     }
 

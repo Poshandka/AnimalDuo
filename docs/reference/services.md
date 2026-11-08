@@ -847,12 +847,28 @@ Most service calls can be found before they crash, before the first boot or the 
 
 The editor also previews the left stick's slow-walk radius. Two linear ramps join at 35% analog tilt, with the join placed at the saved fraction of the outer ring radius. The slider starts at 20% or five percentage points beyond the dead zone, whichever is greater, and ends at 70%. Full tilt still occurs at 80% of the outer radius. The map preserves direction and uses the existing linear response for profiles without a slow-walk radius. Orientation changes use the saved profile for the active layout.
 
+The portrait stick artwork and travel radius scale from the fitted 100% size. The fitted button layout still owns the reserved stick grab discs. A larger ring and knob can use more of those discs without taking touches from the middle column, menu keys or stick clicks.
+
+The portrait buttons also scale from the fitted size. Each group grows into its reserved space across the slider's range. The face buttons leave room between their outlines and retain diagonal presses. The menu pills retain 44-point minimum touch targets, and the D-pad, shoulders and stick clicks keep their hit extents inside the side rails.
+
+The portrait face diamond uses the extra vertical room between the shoulders and the plus button. Its hit geometry follows the taller diamond, including adjacent presses, and its draggable bounds fit the same rail.
+
+Y and A also use part of the right rail's spare horizontal padding. Drawing, touch ownership and drag limits share the wider diamond and a clear margin beside the companion content.
+
 ### Companion button edges waiting for data sampling
 
 - **Symptom:** a brief companion button tap is missed or held longer than requested on a passive page, especially after reducing page refresh frequency.
 - **Cause:** `host.press` stored a 50-to-500-ms input pulse but only published it from the data sampler. A passive page's 500-ms interval could miss a 120-ms pulse entirely; sampling work could also delay release.
 - **Fix:** a valid visible pulse publishes immediately, combined with the last module input mask. A separate high-priority timed callback releases only its own generation, independently of page sampling. Hiding resets both masks and invalidates queued releases; sampling and callbacks publish under the same visibility lock. A newer pulse cannot be released by an older callback. A presentation generation also discards a sample that crossed a hide/resume transition, preventing its old module input from returning. The native adapter test blocks its sampling worker, reproduces the old missing press, and verifies immediate press, timely release, module-gate preservation and hide/resume cancellation without game data.
 - **Found on:** [Animal Crossing: New Horizons](../../dm/games/01006F8002326000/README.md), Apple companion input.
+
+### Companion page waits behind old image requests
+
+- **Symptom:** a companion tab highlights before its content appears, and quickly switching pages can extend the delay.
+- **Cause:** the UI polls passive pages every 500 ms, even after the native worker has published an interactive response. The renderer also submitted the whole previous page's image set to the serial decoder before starting new requests.
+- **Fix:** an accepted action requests the next sample as before. Once a valid snapshot is published, the native worker notifies the main-thread model. Passive polling retains its existing intervals. Swift submits two image requests at a time and replaces the unsent work when the visible set changes. Wallpaper, dock images and visible art precede optional label bitmaps. Existing image ownership, hide cancellation and retry limits still apply.
+- **Found on:** [Animal Crossing: New Horizons](../../dm/games/01006F8002326000/README.md#controller-companion-layout-2026-11-04), Apple companion.
+- **Check:** the adapter fixture observes the new snapshot at notification delivery. A suspended image loader changes pages with forty old assets requested and verifies that only the two already submitted finish before the new page, in its priority order.
 
 ### Companion layout templates expanded on every redraw
 
@@ -949,6 +965,14 @@ The editor also previews the left stick's slow-walk radius. Two linear ramps joi
 - **Cause:** The body kept a fixed logical width even when fitting its height left additional horizontal space.
 - **Fix:** Use the spare width in body coordinates and keep the footer transform separate. The map uses a larger proportional viewport, pockets spread their original slot groups, and the recipe list gains whole columns when they fit. Rendering and input share the expanded rectangles. The recipe list keeps its approximate visible position across column counts. Active touch gestures hold their original controller layout until completion or cancellation.
 - **Found on:** [Animal Crossing: New Horizons](../../dm/games/01006F8002326000/README.md#controller-companion-layout-2026-11-04).
+
+The controller layout paints the page backdrop once across the whole surface. A second draw in the original coordinates formerly left a seam at the right edge. Separate themed page panels use the widened body layout, while foreground widgets and the footer keep their own transforms.
+
+The footer stays at the bottom and shares a physical gap with the companion body and both touch rails. The page backdrop continues through that gap. The dock draws its authored navigation group separately from page content, and taps and drops stay in their own regions.
+
+The borderless companion fills the surface with a single wallpaper. The original Map, Critters and DIY textures use their panel interiors, and alternate themes omit the separately drawn outer panel and shadow. Page widgets and navigation retain their own transforms.
+
+The dock paints a full-width plate to the physical bottom edge. The window supplies the bottom corner clip. The compact tab artwork is centred vertically, with side clearance and a small reserved gesture strip at the bottom. UIKit and SwiftUI share the dock height. Foreground artwork uses a single scale and centres in the available body, and the main touch rows use an even pitch above the dock. Drawing, scrolling and hit testing use the same body coordinates.
 
 ### Companion body masks stop at the centre card
 

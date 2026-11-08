@@ -192,16 +192,15 @@ Image AppButtonRaw(Art& art, int frame) {
     return l->Compose("N_NonSelect_00", o);
 }
 
-constexpr std::array<std::pair<const char*, const char*>, 6> Tabs{{
-    // label (own word), colour = NookPhone app base colour (LMenuDeviceBtn P_Base_<App> / _Type
-    // FLMC)
-    {"Map", "37ab7f"},
-    {"Bag", "ef6372"},
-    {"Critters", "ed9a21"},
-    {"DIY", "c54a23"},
-    {"Today", "4154df"},
-    {"Phone", "8847e5"},
-}};
+// Display sRGB equivalents of the dock's linear LMenuDeviceBtn material colours.
+constexpr std::array<const char*, 6> TabColours{
+    "80d6bb", // Map
+    "f8a7b2", // Bag, using the Custom Designs base
+    "f7cc65", // Critters
+    "e49368", // DIY
+    "8a9bf0", // Today
+    "c190f3", // Phone
+};
 
 // acnh_mock.tab_icon
 Image TabIcon(Art& art, int k, double size) {
@@ -212,7 +211,7 @@ Image TabIcon(Art& art, int k, double size) {
             return {};
         return draw::Fit(b, size, size);
     }
-    Image base = Card(art, 150, 150, C(Tabs[k].second), 46);
+    Image base = Card(art, 150, 150, C(TabColours[k]), 46);
     Image g;
     if (k == 1) // LRecipeCategory#IconCatGoodsBag^s cream on the Custom Designs squircle
         g = draw::Fit(draw::MaskTint(art.Tex("LRecipeCategory", "IconCatGoodsBag^s"), C(ui::Cream)),
@@ -767,7 +766,7 @@ bool Recipe(Art& art, const ArtKey& key, Image& out) {
     if (g == "tabsel") { // active tab: W_Base_00 capsule in the app colour + white sheen (LAYOUT)
         const int k = std::clamp(key.Int("k", 0), 0, 5);
         const double w = key.Num("w", 192), h = key.Num("h", 90);
-        out = Capsule(art, w, h, key.Col("c", C(Tabs[k].second)));
+        out = Capsule(art, w, h, key.Col("c", C(TabColours[k])));
         draw::Paste(out,
                     draw::MaskTint(
                         draw::Pill(art.Tex("LBookCatBtnS_00", "CmnGuideCorner^s"), w - 10, h - 10),

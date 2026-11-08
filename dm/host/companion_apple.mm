@@ -42,7 +42,7 @@ static const EdenDsmodModuleApi *provider() {
     NSString *_romfs, *_trace;
     uint64_t _sample, _command, _pressMask, _pressUntil, _pressGeneration, _moduleMask, _visibilityGeneration;
     NSUInteger _traceTick;
-    BOOL _visible, _moduleReady;
+    BOOL _visible, _moduleReady, _interactionSamplePending;
 }
 @property(atomic) BOOL visible;
 @property(atomic,copy) NSString *page;
@@ -219,7 +219,20 @@ static BOOL writePNG(NSData *rgba,NSUInteger w,NSUInteger h,NSString *path) {
     uint64_t mask=0;for(NSString *field in _inputGates)if([_output[field]boolValue])mask|=[_inputGates[field]unsignedLongLongValue];
     // Visibility may change during a guest sample. Serialize the last publication with
     // backgrounding so an in-flight sample cannot reintroduce a held button after reset.
-    @synchronized(self){if(generation!=_visibilityGeneration)return;_moduleMask=_visible ? mask:0;if(tick(nullptr)<_pressUntil)mask|=_pressMask;else _pressMask=0;if(_visible)dm_companion_input(mask);else dm_companion_input_reset();_latest=[_output copy];}
+    BOOL notifyUI;
+    @synchronized(self){
+        if(generation!=_visibilityGeneration)return;
+        _moduleMask=_visible ? mask:0;
+        if(tick(nullptr)<_pressUntil)mask|=_pressMask;else _pressMask=0;
+        if(_visible)dm_companion_input(mask);else dm_companion_input_reset();
+        notifyUI=_interactionSamplePending ||
+            [_latest[@"ui.page"]longLongValue]!=[_output[@"ui.page"]longLongValue];
+        _latest=[_output copy];
+    }
+    _interactionSamplePending=NO;
+    if(notifyUI)dispatch_async(dispatch_get_main_queue(), ^{
+        [NSNotificationCenter.defaultCenter postNotificationName:@"DmCompanionInteractionSampled" object:self];
+    });
     if(_trace && ++_traceTick%10==0){
         NSString *file=[_trace stringByAppendingPathComponent:@"command.json"];
         NSDictionary *cmd=[NSJSONSerialization JSONObjectWithData:[NSData dataWithContentsOfFile:file] ?: NSData.data options:0 error:nil];
@@ -265,7 +278,8 @@ static BOOL writePNG(NSData *rgba,NSUInteger w,NSUInteger h,NSString *path) {
         if(!self->_instance || !self->_extensions || !self->_extensions->on_action)return;
         BOOL accepted=self->_extensions->on_action(self->_instance,name.UTF8String,argument);
         if(accepted && [name isEqual:@"ui_open"] && argument>=1 && argument<=6)self.page=@[@"map",@"bag",@"critters",@"diy",@"today",@"phone"][argument-1];
-        if(!accepted)fprintf(stderr,"companion: action refused: %s\n",name.UTF8String);
+        if(accepted)self->_interactionSamplePending=YES;
+        else fprintf(stderr,"companion: action refused: %s\n",name.UTF8String);
     });
 }
 - (void)image:(NSString *)key completion:(void (^)(NSData *,NSUInteger,NSUInteger))completion {

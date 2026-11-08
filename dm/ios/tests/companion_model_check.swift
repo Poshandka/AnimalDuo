@@ -71,6 +71,32 @@ import Foundation
         assert(changed.hit(CGPoint(x:42,y:5))?.payload==1 && initial.hit(CGPoint(x:1,y:5))?.payload==0)
         snapshot["total"] = -1;model.poll()
         assert(EdenFrame(model:model,manifest:changingManifest,local:[:]).nodes.isEmpty)
+        let dockManifest=EdenManifest(data:try! JSONSerialization.data(withJSONObject:["pages":[["id":"map","widgets":[
+            ["type":"rect","rect":[10,12,1216,948]],
+            ["type":"image","rect":[742,966,450,66],"src":"module:placeholder"],
+            ["type":"image","rect":[8,966,1224,102],"src":"module:acnh/ui/dock?w=1224&h=102"],
+            ["type":"rect","rect":[16,970,201,102],"on_tap":"tab.map"]
+        ]]]]))
+        let dockFrame=EdenFrame(model:model,manifest:dockManifest,local:[:])
+        let dock=dockFrame.sections(dockFrame.nodes)
+        assert(dock.body.map(\.id)==[0] && dock.footer.map(\.id)==[512,768])
+        assert(dock.footer.filter(\.isDockArtwork).map(\.id)==[512])
+        let curved=EdenSurfaceLayout(CGSize(width:669,height:475.5),controls:true,
+                                    dockInsets:.init(top:0,leading:22,bottom:34,trailing:17))
+        assert(curved.footer.maxY==475.5 && curved.footer.height<72)
+        let gestureEdge=curved.footer.maxY-curved.navControls.maxY
+        assert(gestureEdge>=8 && gestureEdge<=11)
+        assert(abs((curved.navArt.minY-curved.footer.minY)-(curved.footer.maxY-curved.navArt.maxY))<0.00001)
+        assert(curved.navControls.minX>=22 && curved.navControls.maxX<=652.00001)
+        assert(curved.navControls.height>=44 && !curved.body.intersects(curved.navControls))
+        for x in [0.5,334.5,668.5] {
+            let bottom=CGPoint(x:x,y:475)
+            assert(curved.dockShape.contains(bottom) && !curved.touchShape.contains(bottom))
+        }
+        assert(!curved.dockShape.contains(CGPoint(x:0.5,y:curved.footer.minY+0.5)))
+        assert(curved.dockShape.contains(CGPoint(x:334.5,y:curved.footer.minY+0.5)))
+        assert(curved.touchShape.contains(CGPoint(x:curved.navControls.midX,y:curved.navControls.maxY-0.5)))
+        assert(curved.tapPoint(CGPoint(x:curved.navControls.midX,y:curved.navControls.maxY-0.5)).y==1024)
         let bodyMask:[String:Any] = ["type":"rect","input_block":true,"bg":"#B03A2B18"]
         for height in [960.0,964.0,968.0] {
             assert(EdenNode(id:0,data:bodyMask,rect:CGRect(x:0,y:0,width:1240,height:height),clip:nil).coversBody)
@@ -85,9 +111,22 @@ import Foundation
             assert(!EdenNode(id:0,data:data,rect:fullBody,clip:nil).coversBody)
         }
         assert(!EdenNode(id:0,data:bodyMask,rect:fullBody,clip:fullBody).coversBody)
-        for size in [CGSize(width:834,height:690),CGSize(width:1024,height:750),CGSize(width:500,height:420),CGSize(width:393,height:538),CGSize(width:402,height:552),CGSize(width:430,height:597)] {
+        let wallpaper=EdenNode(id:0,data:["type":"image"],rect:CGRect(x:0,y:0,width:1240,height:1080),clip:nil)
+        let panel=EdenNode(id:1,data:["type":"image"],rect:CGRect(x:12,y:12,width:1216,height:948),clip:nil)
+        let scrim=EdenNode(id:2,data:bodyMask,rect:fullBody,clip:nil)
+        let border=EdenNode(id:3,data:["type":"image","rect":[12,12,1216,948],
+                                     "src":"module:acnh/ui/panel/map?w=1216&h=948"],
+                            rect:CGRect(x:12,y:12,width:1316,height:948),clip:nil)
+        let shadow=EdenNode(id:4,data:["type":"image","rect":[12,18,1216,948],
+                                     "src":"module:acnh/ui/card?w=1216&h=948&r=46&c=04554f50"],
+                            rect:CGRect(x:12,y:18,width:1316,height:948),clip:nil)
+        for size in [CGSize(width:834,height:690),CGSize(width:1024,height:750),CGSize(width:669,height:475.5),CGSize(width:500,height:420),CGSize(width:393,height:538),CGSize(width:402,height:552),CGSize(width:430,height:597)] {
             let l=EdenSurfaceLayout(size);assert(l.body.width==size.width && l.footer.maxY==size.height)
             assert(l.footer.width==size.width && !l.body.intersects(l.footer))
+            let gap=CGPoint(x:size.width/2,y:(l.body.maxY+l.footer.minY)/2)
+            assert(l.footer.minY-l.body.maxY>6 && !l.touchShape.contains(gap))
+            assert(l.touchShape.contains(CGPoint(x:size.width/2,y:l.footer.midY)))
+            assert(l.touchShape.contains(CGPoint(x:size.width/2,y:l.body.midY)))
             let original=CGPoint(x:600,y:1010),screen=CGPoint(x:l.navOffset.x+original.x*l.navScale,y:l.navOffset.y+original.y*l.navScale)
             let roundTrip=l.point(screen);assert(abs(roundTrip.x-original.x)<0.00001 && abs(roundTrip.y-original.y)<0.00001)
             // Both edges of a physical footer cell reach its authored button;
@@ -99,10 +138,27 @@ import Foundation
             let body=CGPoint(x:50,y:l.body.midY)
             assert(l.tapPoint(body)==l.point(body))
             let reserved=EdenSurfaceLayout(size,controls:true)
+            let connected=EdenSurfaceLayout(size,expand:true)
+            for layout in [reserved,connected] {
+                let layers=layout.bodyArtwork([wallpaper,border,shadow,panel,scrim])
+                assert(layers.background?.id==wallpaper.id && layers.content.map(\.id)==[panel.id,scrim.id])
+            }
+            assert(connected.content==connected.body && connected.footer==reserved.footer)
+            assert(connected.bodyArtwork([panel]).background==nil)
+            for page in ["map","critters","diy"] {
+                let draw=EdenSurfaceLayout.wallpaperRect("module:acnh/bg/0/"+page,size:size)
+                assert(abs(draw.minX+64*draw.width/1240)<0.00001)
+                assert(abs(draw.minY+64*draw.height/1080)<0.00001)
+                assert(abs(draw.minX+1176*draw.width/1240-size.width)<0.00001)
+                assert(abs(draw.minY+908*draw.height/1080-size.height)<0.00001)
+            }
+            assert(EdenSurfaceLayout.wallpaperRect("module:acnh/bg/1/all",size:size)==CGRect(origin:.zero,size:size))
             let art=CGRect(x:reserved.bodyOffset.x,y:reserved.bodyOffset.y,width:1240*reserved.bodyScale,height:968*reserved.bodyScale)
             assert(reserved.content.insetBy(dx:-0.0001,dy:-0.0001).contains(art))
+            assert(abs(art.midY-reserved.content.midY)<0.00001)
             assert(!reserved.left.intersects(reserved.content) && !reserved.right.intersects(reserved.content))
-            assert(reserved.footer==l.footer) // Touch columns never move navigation.
+            assert(reserved.body==l.body && reserved.footer==l.footer)
+            assert(reserved.left.maxY==l.body.maxY && reserved.right.maxY==l.body.maxY)
             let item=CGPoint(x:320,y:240)
             let itemOnScreen=CGPoint(x:reserved.bodyOffset.x+item.x*reserved.bodyScale,y:reserved.bodyOffset.y+item.y*reserved.bodyScale)
             let itemBack=reserved.tapPoint(itemOnScreen)
@@ -110,6 +166,7 @@ import Foundation
             let oldScale=min(size.width/1240,l.body.height/968)
             assert(abs(l.bodyScale-oldScale)<0.00001) // Desktop/full-content layout is retained.
             for layout in [l,reserved] {
+                assert(abs(layout.bodyDistance(CGSize(width:3*layout.bodyScale,height:4*layout.bodyScale))-5)<0.00001)
                 let cover=layout.bodyCoverRect
                 let physical=CGRect(x:layout.bodyOffset.x+cover.minX*layout.bodyScale,
                                     y:layout.bodyOffset.y+cover.minY*layout.bodyScale,

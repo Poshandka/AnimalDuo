@@ -90,7 +90,7 @@ static const CGFloat
     K_WALK_TILT = 0.35,                             // analog tilt at the outer edge of the left stick's slow-walk zone
     // controls only the 3D layout has
     K_LOW_X = 231, K_LOW_Y = 64,                    // D-pad centre from the outer edge and the bottom (inward of and below the left stick, as on a Pro Controller)
-    K_DPAD_R = 48, K_ARM_W = 17, K_ARM_IN = 11,     // D-pad: arm outer edge from the centre, half-width, tip from the centre
+    K_DPAD_R = 48, K_ARM_W = DM_COMPANION_DPAD_ARM_WIDTH, K_ARM_IN = 11, // D-pad: arm outer edge from the centre, half-width, tip from the centre
     K_DPAD_GRAB = 1.3,                              // D-pad grab radius (times the outer edge)
     K_RSTICK_R = 60,                                // right stick (not drawn): radius around its centre, the touch-down point
     K_RSWIPE = 1.0 / 3,                             // right stick area: this fraction of the screen width from the right edge (not in u)
@@ -269,9 +269,9 @@ static BOOL fullOnly(int b) { return b == B_LS || b == B_RS || b >= B_LEFT; }   
     if([self inSwap:point])return YES;
     if(_tap)return NO;
     if([self btnAt:point]>=0)return YES;
-    if(dist(point,self.faceCenter)<=self.faceGap+self.faceR*1.6)return YES;
-    if(dist(point,self.stickHome)<=[self stickR:0]*K_STICK_GRAB)return YES;
-    return _full && (dist(point,self.dpadCenter)<=self.dpadR*K_DPAD_GRAB || [self inRightArea:point]);
+    if([self faceGrabFraction:point]<=1)return YES;
+    if(dist(point,self.stickHome)<=[self stickGrabRadius:0])return YES;
+    return _full && (dist(point,self.dpadCenter)<=self.dpadGrabRadius || [self inRightArea:point]);
 }
 - (CGPoint)rightHome {
     CGRect s=self.corner;CGPoint p=_sideControls ? self.sideGeometry.right_stick : side(s,1,K_LOW_X*self.u,CGRectGetMaxY(s)-K_LOW_Y*self.u);
@@ -292,8 +292,19 @@ static CGPoint side(CGRect s, int right, CGFloat dx, CGFloat y) { return CGPoint
 - (CGPoint)faceCenter {CGRect s=self.corner;CGFloat u=self.u;CGPoint p=_sideControls ? self.sideGeometry.face : side(s,1,K_FACE_X*u,CGRectGetMaxY(s)-K_PAD_Y*u);return [self moved:p group:@"face" radius:self.faceGap+self.faceR];}
 - (CGFloat)faceGap { return _sideControls ? self.sideGeometry.face_gap : K_FACE_GAP*self.u; }
 - (CGFloat)faceR { return _sideControls ? self.sideGeometry.face_r : K_FACE_R*self.u; }
-- (CGPoint)facePos:(int)b { CGPoint c = self.faceCenter; CGFloat g = self.faceGap;
-    switch (b) { case B_A: return CGPointMake(c.x + g, c.y); case B_B: return CGPointMake(c.x, c.y + g); case B_X: return CGPointMake(c.x, c.y - g); default: return CGPointMake(c.x - g, c.y); } }
+static CGFloat faceDistance(CGPoint p,CGPoint center,CGFloat xScale,CGFloat yScale) {
+    return hypot((p.x-center.x)/xScale,(p.y-center.y)/yScale);
+}
+- (CGFloat)faceGrabFraction:(CGPoint)p {
+    if(!_sideControls)return dist(p,self.faceCenter)/(self.faceGap+self.faceR*1.6);
+    dm_companion_pad_layout g=self.sideGeometry;
+    CGFloat extent=g.face_gap+g.face_hit_r;
+    return extent>0 ? faceDistance(p,self.faceCenter,g.face_x_scale,g.face_y_scale)/extent : INFINITY;
+}
+- (CGPoint)facePos:(int)b { CGPoint c = self.faceCenter; CGFloat x = self.faceGap;
+    CGFloat y=x;
+    if(_sideControls){dm_companion_pad_layout g=self.sideGeometry;x*=g.face_x_scale;y*=g.face_y_scale;}
+    switch (b) { case B_A: return CGPointMake(c.x+x,c.y); case B_B: return CGPointMake(c.x,c.y+y); case B_X: return CGPointMake(c.x,c.y-y); default: return CGPointMake(c.x-x,c.y); } }
 - (CGPoint)outerLeftStick {
     CGFloat u=self.u;CGRect s=self.corner;
     CGFloat x=CGRectGetMinX(self.safe)+K_ZL_X*u+MAX(K_ZL_R,K_L_R)*u*1.35+[self stickR:0]*K_STICK_GRAB+8*u;
@@ -302,11 +313,16 @@ static CGPoint side(CGRect s, int right, CGFloat dx, CGFloat y) { return CGPoint
 - (CGPoint)stickHome {CGRect s=self.corner;CGPoint p=_sideControls ? self.sideGeometry.stick : front_controls_full_canvas()?self.outerLeftStick:side(s,0,K_STICK_X*self.u,CGRectGetMaxY(s)-K_PAD_Y*self.u);return [self moved:p group:@"leftStick" radius:[self stickR:0]];}   // the left stick's ring centre
 - (CGPoint)stickCentre:(int)i { return i ? ([self fixedRight] ? self.rightHome : _rCentre) : self.stickHome; }
 - (CGFloat)stickR:(int)i { return _sideControls ? (i ? self.sideGeometry.right_r : self.sideGeometry.stick_r) : (i ? K_RSTICK_R : K_STICK_R)*self.u; }
-- (BOOL)inRightArea:(CGPoint)p { if([self fixedRight]){return dist(p,self.rightHome)<=[self stickR:1]*K_STICK_GRAB;} CGRect b = self.bounds; return p.x >= CGRectGetMaxX(b) - b.size.width * K_RSWIPE; }
+- (CGFloat)stickGrabRadius:(int)i {
+    return _sideControls ? dm_companion_pad_stick_extent(self.sideGeometry,i) : [self stickR:i]*K_STICK_GRAB;
+}
+- (CGFloat)stickKnobRadius { return _sideControls ? self.sideGeometry.knob_r : K_KNOB_R*self.u; }
+- (BOOL)inRightArea:(CGPoint)p { if([self fixedRight]){return dist(p,self.rightHome)<=[self stickGrabRadius:1];} CGRect b = self.bounds; return p.x >= CGRectGetMaxX(b) - b.size.width * K_RSWIPE; }
 - (CGPoint)dpadCenter {CGRect s=self.corner;CGFloat u=self.u;CGPoint p=_sideControls ? self.sideGeometry.dpad : side(s,0,K_LOW_X*u,CGRectGetMaxY(s)-K_LOW_Y*u);
     if(!_sideControls && front_controls_full_canvas()){p=self.outerLeftStick;p.y-=[self stickR:0]*K_STICK_GRAB+self.dpadR*K_DPAD_GRAB+8*u;}
     return [self moved:p group:@"dpad" radius:self.dpadR];}
 - (CGFloat)dpadR { return _sideControls ? self.sideGeometry.dpad_r : K_DPAD_R*self.u; }
+- (CGFloat)dpadGrabRadius { return _sideControls ? self.sideGeometry.dpad_hit_r : self.dpadR*K_DPAD_GRAB; }
 static BOOL isDrop(int b) { return b == B_ZL || b == B_L || b == B_ZR || b == B_R; }
 static BOOL isClick(int b) { return b == B_LS || b == B_RS; }
 - (CGPoint)dropCenter:(int)b { CGRect s = self.safe; CGFloat u = self.u; BOOL z = b == B_ZL || b == B_ZR;
@@ -331,20 +347,35 @@ static BOOL isClick(int b) { return b == B_LS || b == B_RS; }
 
 static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); }
 - (int)btnAt:(CGPoint)p {   // locked keys (tested on touch-down only, then locked)
-    CGFloat u = self.u;
+    dm_companion_pad_layout sideGeometry=_sideControls ? self.sideGeometry : (dm_companion_pad_layout){0};
     for (int i = 0; i < (int)(sizeof k_btns / sizeof *k_btns); i++) { int b = k_btns[i];
         if (fullOnly(b) && !_full) continue;
         BOOL hit;
-        if(isDrop(b))hit=dist(p,[self dropCenter:b])<=[self dropR:b]*1.35;
-        else if(isClick(b))hit=dist(p,[self clickCenter:b])<=self.clickR*1.35;
-        else {CGRect r=[self pillRect:b];CGFloat dx=fmax(8*u,_sideControls?(44-r.size.width)/2:0),dy=fmax(8*u,_sideControls?(44-r.size.height)/2:0);hit=CGRectContainsPoint(CGRectInset(r,-dx,-dy),p);}
+        if(isDrop(b)){
+            CGFloat radius=_sideControls ? sideGeometry.shoulder_hit_r : [self dropR:b]*1.35;
+            hit=dist(p,[self dropCenter:b])<=radius;
+            // A resized teardrop can extend beyond the circular tap target.
+            if(!hit && _sideControls && _key[b].path)hit=CGPathContainsPoint(_key[b].path,NULL,p,false);
+        } else if(isClick(b)){
+            hit=dist(p,[self clickCenter:b])<=(_sideControls ? sideGeometry.click_hit_r : self.clickR*1.35);
+        } else {
+            CGRect rect=[self pillRect:b];
+            if(_sideControls){
+                CGSize target=sideGeometry.menu_hit_size;
+                rect=CGRectInset(rect,(rect.size.width-target.width)/2,(rect.size.height-target.height)/2);
+            } else rect=CGRectInset(rect,-8*self.u,-8*self.u);
+            hit=CGRectContainsPoint(rect,p);
+        }
         if (hit) return b; }
     return -1;
 }
 - (BOOL)inSwap:(CGPoint)p { return _previewMode && dist(p, self.swapCenter) <= self.swapR * 1.6; }
 - (uint64_t)faceAt:(CGPoint)p {   // keys under the finger in the diamond (between two keys both count)
-    uint64_t m = 0; CGFloat r = self.faceR * 1.25;
-    for (int b = B_A; b <= B_Y; b++) if (dist(p, [self facePos:b]) <= r) m |= 1ull << b;
+    dm_companion_pad_layout g=_sideControls ? self.sideGeometry : (dm_companion_pad_layout){0};
+    CGFloat r=_sideControls ? g.face_hit_r : self.faceR*1.25;
+    CGFloat xScale=fmax(1,g.face_x_scale),yScale=fmax(1,g.face_y_scale);
+    uint64_t m=0;
+    for (int b = B_A; b <= B_Y; b++) if (faceDistance(p,[self facePos:b],xScale,yScale)<=r) m|=1ull<<b;
     return m;
 }
 - (uint64_t)dpadAt:(CGPoint)p {   // 8 directions: 45° each, diagonals press two keys; a small centre circle counts as none
@@ -366,7 +397,7 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); 
 - (CGPoint)knobOffset:(int)i {
     CGPoint p=[self stickOffset:i];CGFloat r=[self stickR:i];
     // Keep companion artwork inside the ring without shortening the HID throw.
-    if(_sideControls && r>0){CGFloat travel=fmax(0,r-K_KNOB_R*self.u)/r;p.x*=travel;p.y*=travel;}
+    if(_sideControls && r>0){CGFloat travel=fmax(0,r-self.stickKnobRadius)/r;p.x*=travel;p.y*=travel;}
     return p;
 }
 
@@ -446,9 +477,9 @@ static CGFloat dist(CGPoint a, CGPoint b) { return hypot(a.x - b.x, a.y - b.y); 
         if (_tap) { game |= [self gameBegin:t]; continue; }
         // diamond, D-pad, left stick: take the one with the smallest distance / grab radius, if it is <= 1
         CGFloat best = 1; int kind = C_NONE, idx = 0;
-        CGFloat f = dist(p, self.faceCenter) / (self.faceGap + self.faceR * 1.6); if (f <= best) { best = f; kind = C_FACE; }
-        if (_full) { CGFloat d = dist(p, self.dpadCenter) / (self.dpadR * K_DPAD_GRAB); if (d < best) { best = d; kind = C_DPAD; } }
-        if (!_stick[0]) { CGFloat s = dist(p, self.stickHome) / ([self stickR:0] * K_STICK_GRAB); if (s < best) { best = s; kind = C_STICK; } }
+        CGFloat f = [self faceGrabFraction:p]; if (f <= best) { best = f; kind = C_FACE; }
+        if (_full) { CGFloat d = dist(p, self.dpadCenter) / self.dpadGrabRadius; if (d < best) { best = d; kind = C_DPAD; } }
+        if (!_stick[0]) { CGFloat s = dist(p, self.stickHome) / [self stickGrabRadius:0]; if (s < best) { best = s; kind = C_STICK; } }
         if (kind == C_NONE && _full && !_stick[1] && [self inRightArea:p]) { kind = C_STICK; idx = 1; _rCentre = p; }   // the right stick: centred where the touch lands
         if (kind == C_FACE) { [_owner setObject:@(C_FACE) forKey:t]; [_faceOf setObject:@([self faceAt:p]) forKey:t]; }
         else if (kind == C_DPAD) [_owner setObject:@(C_DPAD) forKey:t];
@@ -562,15 +593,17 @@ static void placeLabel(CATextLayer *t, CGPoint c, CGFloat fs) {
         }
     }
     static const struct { int b; CGFloat angle; } arms[] = {{B_UP, 0}, {B_RIGHT, M_PI_2}, {B_DOWN, M_PI}, {B_LEFT, -M_PI_2}};   // the same arm in 90° steps
-    for (int i = 0; i < 4; i++) setPath(_key[arms[i].b], armPath(self.dpadCenter, self.dpadR, K_ARM_W * u, K_ARM_IN * u, arms[i].angle, 6 * u));
+    CGFloat dpadR=self.dpadR,armUnit=_sideControls ? dpadR/DM_COMPANION_DPAD_RADIUS : u;
+    for (int i = 0; i < 4; i++) setPath(_key[arms[i].b], armPath(self.dpadCenter,dpadR,K_ARM_W*armUnit,K_ARM_IN*armUnit,arms[i].angle,6*armUnit));
     CGRect menu=self.settingsRect;CGPoint sc=CGPointMake(CGRectGetMidX(menu),CGRectGetMidY(menu));setPath(_swap,circlePath(sc,menu.size.height/2));placeLabel(_swapLabel,sc,12*u);
     setPath(_ring, circlePath(self.stickHome, [self stickR:0]));
+    CGFloat k = self.stickKnobRadius;
     if([self fixedRight]){
         setPath(_rightRing,circlePath(self.rightHome,[self stickR:1]));
-        CGFloat k=K_KNOB_R*u;_rightKnob.bounds=CGRectMake(0,0,2*k,2*k);
-        setPath(_rightKnob,circlePath(CGPointMake(k,k),k));placeLabel(_rightLabel,CGPointMake(k,k),_sideControls?MAX(8,13*u):13*u);
+        _rightKnob.bounds=CGRectMake(0,0,2*k,2*k);
+        setPath(_rightKnob,circlePath(CGPointMake(k,k),k));placeLabel(_rightLabel,CGPointMake(k,k),_sideControls?MAX(8,13*k/K_KNOB_R):13*u);
     }
-    CGFloat k = K_KNOB_R * u; _knob.bounds = CGRectMake(0, 0, 2 * k, 2 * k);
+    _knob.bounds = CGRectMake(0, 0, 2 * k, 2 * k);
     setPath(_knob, circlePath(CGPointMake(k, k), k));
     CAShapeLayer *in = (CAShapeLayer *)_knob.sublayers.firstObject; CGPathRef ip = circlePath(CGPointMake(k, k), k * 0.62);
     in.frame = _knob.bounds; in.path = ip; CGPathRelease(ip);

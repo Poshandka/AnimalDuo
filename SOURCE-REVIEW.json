@@ -1,8 +1,8 @@
 {
   "project_version": "1.2",
-  "application_build": "3.0.68",
+  "application_build": "3.0.76",
   "game_version": "3.0.3",
-  "source_scope": "AnimalDuo 1.2 includes the hosted CI fixes after 1.1, LAN recovery and visitor companion content, resident speech and save safety, backup recovery, and the left-stick slow-walk radius.",
+  "source_scope": "AnimalDuo 1.2 includes the hosted CI fixes after 1.1, LAN recovery and visitor companion content, resident speech and save safety, backup recovery, and the left-stick slow-walk radius. The local 3.0.69 update fixes the controller-mode companion backdrop and portrait stick scaling. The local 3.0.70 update extends the portrait slider to the other button groups. The local 3.0.71 update adjusts portrait face spacing and separates the body and touch rails from the dock. The local 3.0.72 update removes the portrait companion perimeter and widens Y and A within the right rail. The local 3.0.73 update extends the portrait dock to the window bottom and fits its tabs to the safe area. The local 3.0.74 update compacts the dock and redistributes the portrait content and control rows. The local 3.0.75 update centres proportional companion content and calibrates its dock palette. The local 3.0.76 update makes companion interactions publish immediately and combines the Today weather art into a circular badge. AnimalDuo 1.3 publishes the corresponding 3.0.76 sources with updated release documentation.",
   "production_files_identical_to_frozen_release": 203,
   "publication_python_checks_passed": 22,
   "publication_lan_interface_and_lifecycle_check": "PASS",
@@ -15,14 +15,19 @@
   "upstream_copyright_and_component_licenses_retained": true,
   "new_physical_device_or_game_performance_results": false,
   "intentional_production_source_changes": [
+    "dm/host/companion_layout.h",
     "dm/host/hle_ldn.c",
     "dm/host/hle_socket.c",
     "dm/host/ldn_wait.inc",
+    "dm/ios/Sources/ACNHCompanion.swift",
     "dm/ios/Sources/ACNHResidents.swift",
     "dm/ios/Sources/DmGamepad.m",
+    "dm/ios/Sources/EdenCompanion.swift",
+    "dm/ios/Sources/GameHostingController.swift",
     "dm/ios/Sources/ResidentManager.swift",
     "dm/ios/Sources/TouchControls.swift",
     "dm/ios/Sources/TouchControlsBridge.h",
+    "dm/ios/Sources/TouchControlsConfiguration.inc",
     "dm/ios/Sources/front_ios.m",
     "scripts/build_acnh_resident_catalog.py"
   ],
@@ -783,5 +788,349 @@
     "python_lint": "379 pre-existing findings with zero new or obsolete entries",
     "delivered_3_0_68_startup_and_metal": "PASS",
     "physical_cross_device_lan_acceptance": "Pending"
+  },
+  "controller_portrait_checks": {
+    "baseline": "AnimalDuo v1.2 / application build 3.0.68",
+    "native_ui_fixture": {
+      "status": "PASS",
+      "assertions": 213,
+      "older_build_failures": 93,
+      "page_frames": 18,
+      "portrait_sizes_points": [
+        [
+          669,
+          951
+        ],
+        [
+          834,
+          1194
+        ],
+        [
+          1024,
+          1366
+        ]
+      ],
+      "scope": "Mac Catalyst, synthetic wallpaper and controller events, real UIKit and SwiftUI views"
+    },
+    "host_unit_suite": "PASS",
+    "metal_graphics_suite": "PASS",
+    "documentation_checks": 4,
+    "ios_unit_tests": 44,
+    "tool_tests": 310,
+    "optional_tool_test_skips": 16,
+    "python_lint": "379 pre-existing findings with zero new or obsolete entries",
+    "unsigned_generic_arm64_ios_build": "PASS",
+    "game_startup_regression": {
+      "status": "PASS",
+      "seconds_per_revision": 90,
+      "scope": "Same Mac, unchanged native host and game modules"
+    },
+    "physical_devices_tested": false
+  },
+  "portrait_button_scale_checks": {
+    "baseline": "Application build 3.0.69",
+    "native_ui_fixture": {
+      "status": "PASS",
+      "assertions": 2432,
+      "older_build_failures": 542,
+      "page_frames": 24,
+      "portrait_sizes_points": [
+        [
+          669,
+          951
+        ],
+        [
+          469,
+          669
+        ],
+        [
+          834,
+          1194
+        ],
+        [
+          1024,
+          1366
+        ]
+      ],
+      "scope": "Mac Catalyst, real UIKit preview and game pad, synthetic artwork and controller events"
+    },
+    "geometry_size_and_scale_cases": 420,
+    "native_custom_offset_cases": 90,
+    "host_unit_suite": "PASS",
+    "metal_graphics_suite": "PASS",
+    "documentation_checks": 4,
+    "ios_unit_tests": 44,
+    "tool_tests": 310,
+    "optional_tool_test_skips": 16,
+    "python_lint": "379 pre-existing findings with zero new or obsolete entries",
+    "unsigned_generic_arm64_ios_build": "PASS",
+    "game_startup_regression": {
+      "status": "PASS",
+      "seconds_per_revision": 90,
+      "scope": "Same Mac, unchanged native host and game modules"
+    },
+    "physical_devices_tested": false
+  },
+  "portrait_spacing_checks": {
+    "baseline": "Application build 3.0.70",
+    "native_ui_fixture": {
+      "status": "PASS",
+      "assertions": 2564,
+      "older_build_failures": 60,
+      "page_frames": 24,
+      "portrait_sizes_points": [
+        [
+          669,
+          951
+        ],
+        [
+          469,
+          669
+        ],
+        [
+          834,
+          1194
+        ],
+        [
+          1024,
+          1366
+        ]
+      ],
+      "scope": "Mac Catalyst, real UIKit pad and SwiftUI rendering with synthetic artwork and controller events"
+    },
+    "geometry_size_and_scale_cases": 420,
+    "native_custom_offset_cases": 90,
+    "host_unit_suite": "PASS",
+    "metal_graphics_suite": "PASS",
+    "documentation_checks": 4,
+    "ios_unit_tests": 44,
+    "tool_tests": 310,
+    "optional_tool_test_skips": 16,
+    "python_lint": "379 pre-existing findings with zero new or obsolete entries",
+    "unsigned_generic_arm64_ios_build": "PASS",
+    "game_startup_regression": {
+      "status": "PASS",
+      "seconds_per_revision": 90,
+      "scope": "Same Mac, unchanged native host and game modules"
+    },
+    "physical_devices_tested": false
+  },
+  "borderless_portrait_checks": {
+    "baseline": "Application build 3.0.71",
+    "native_ui_fixture": {
+      "status": "PASS",
+      "assertions": 6264,
+      "older_build_failures": [
+        345,
+        169
+      ],
+      "theme_fixtures": [
+        "original framed wallpaper",
+        "alternate wallpaper with separate frame layers"
+      ],
+      "page_frames": 48,
+      "portrait_sizes_points": [
+        [
+          669,
+          951
+        ],
+        [
+          469,
+          669
+        ],
+        [
+          834,
+          1194
+        ],
+        [
+          1024,
+          1366
+        ]
+      ],
+      "scope": "Mac Catalyst, real UIKit pad and SwiftUI renderer, synthetic artwork and controller events"
+    },
+    "geometry_size_and_scale_cases": 420,
+    "native_custom_offset_cases": 90,
+    "host_unit_suite": "PASS",
+    "metal_graphics_suite": "PASS",
+    "documentation_checks": 4,
+    "ios_unit_tests": 44,
+    "tool_tests": 310,
+    "optional_tool_test_skips": 16,
+    "python_lint": "379 pre-existing findings with zero new or obsolete entries",
+    "unsigned_generic_arm64_ios_build": "PASS",
+    "game_startup_regression": {
+      "status": "PASS",
+      "seconds_per_revision": 90,
+      "scope": "Same Mac, unchanged native host and game modules"
+    },
+    "physical_devices_tested": false
+  },
+  "bottom_dock_checks": {
+    "baseline": "Application build 3.0.72",
+    "native_ui_fixture": {
+      "status": "PASS",
+      "assertions": 3518,
+      "older_build_failures": [
+        199
+      ],
+      "page_frames": 24,
+      "portrait_sizes_points": [
+        [
+          669,
+          951
+        ],
+        [
+          469,
+          669
+        ],
+        [
+          834,
+          1194
+        ],
+        [
+          1024,
+          1366
+        ]
+      ],
+      "bottom_insets_points": [
+        34,
+        34,
+        20,
+        0
+      ],
+      "window_fixture_corner_radii_points": [
+        46,
+        52,
+        24,
+        0
+      ],
+      "scope": "Mac Catalyst, real UIKit and SwiftUI rendering with synthetic artwork, window masks and controller events"
+    },
+    "geometry_size_and_scale_cases": 420,
+    "native_custom_offset_cases": 90,
+    "host_unit_suite": "PASS",
+    "metal_graphics_suite": "PASS",
+    "documentation_checks": 4,
+    "ios_unit_tests": 44,
+    "tool_tests": 310,
+    "optional_tool_test_skips": 16,
+    "python_lint": "379 pre-existing findings with zero new or obsolete entries",
+    "unsigned_generic_arm64_ios_build": "PASS",
+    "game_startup_regression": {
+      "status": "CHANGED",
+      "seconds_per_revision": 90,
+      "scope": "Same Mac, unchanged native host and game modules"
+    },
+    "physical_devices_tested": false
+  },
+  "compact_dock_checks": {
+    "baseline": "Application build 3.0.73",
+    "native_ui_fixture": {
+      "status": "PASS",
+      "assertions": 3638,
+      "older_build_failures": [
+        106
+      ],
+      "page_frames": 24,
+      "portrait_sizes_points": [
+        [
+          669,
+          951
+        ],
+        [
+          469,
+          669
+        ],
+        [
+          834,
+          1194
+        ],
+        [
+          1024,
+          1366
+        ]
+      ],
+      "dock_height_before_after_points": [
+        [
+          90.9,
+          70.6
+        ],
+        [
+          78.0,
+          54.9
+        ],
+        [
+          92.4,
+          73.2
+        ],
+        [
+          88.0,
+          68.8
+        ]
+      ],
+      "scope": "Mac Catalyst, real UIKit and SwiftUI rendering with synthetic artwork, window masks and controller events"
+    },
+    "geometry_size_and_scale_cases": 420,
+    "native_custom_offset_cases": 90,
+    "host_unit_suite": "PASS",
+    "metal_graphics_suite": "PASS",
+    "documentation_checks": 4,
+    "ios_unit_tests": 44,
+    "tool_tests": 310,
+    "optional_tool_test_skips": 16,
+    "python_lint": "379 pre-existing findings with zero new or obsolete entries",
+    "unsigned_generic_arm64_ios_build": "PASS",
+    "game_startup_regression": {
+      "status": "CHANGED",
+      "seconds_per_revision": 90,
+      "scope": "Same Mac, unchanged native host and game modules"
+    },
+    "physical_devices_tested": false
+  },
+  "centered_companion_checks": {
+    "baseline": "Application build 3.0.74",
+    "host_unit_suite": "PASS",
+    "ios_unit_tests": 44,
+    "documentation_checks": 4,
+    "native_palette_recipes": 35,
+    "game_phone_reference_colours": 6,
+    "unsigned_generic_arm64_ios_build": "PASS",
+    "game_startup_regression": {
+      "status": "PASS",
+      "seconds_per_revision": 90
+    },
+    "physical_devices_tested": false
+  },
+  "companion_response_checks": {
+    "baseline": "Application build 3.0.75",
+    "host_unit_suite": "PASS",
+    "ios_unit_tests": 44,
+    "documentation_checks": 4,
+    "interrupted_image_queue": {
+      "requested_previous_page_images": 40,
+      "maximum_in_flight": 2
+    },
+    "unsigned_generic_arm64_ios_build": "PASS",
+    "game_startup_regression": {
+      "status": "PASS",
+      "seconds_per_revision": 90
+    },
+    "physical_devices_tested": false
+  },
+  "release_version": "1.3",
+  "release_1_3": {
+    "base_release": "1.2",
+    "base_commit": "1e711e8d9985b337f1ebec08949884ca2a9605df",
+    "application_build": "3.0.76",
+    "game_version": "3.0.3",
+    "local_validation": {
+      "host_unit_suite": "PASS",
+      "ios_unit_tests": 44,
+      "ios_unsigned_build": "PASS",
+      "game_startup_regression": "PASS",
+      "weather_badge_preview": "PASS"
+    },
+    "physical_device_timing_measured": false
   }
 }

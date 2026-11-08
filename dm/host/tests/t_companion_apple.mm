@@ -24,7 +24,7 @@ void dm_companion_input(uint64_t mask) { if(forbidOldModuleButton && (mask&1))++
 void dm_companion_input_reset(void) { input=0; }
 static EdenDsmodBool supports(const char *s) { return !strcmp(s,"ff1d1c05670db6021c85b624a710b963"); }
 static void *create(const EdenDsmodHostApi *h,const char *) { assert(!h->write_memory && !h->queue_guest_call && !h->get_read_pointer);char data[4]={0};assert(h->read_romfs(h->userdata,"/fixture",0,nullptr,0)==4);assert(h->read_romfs(h->userdata,"fixture",1,data,3)==3 && !memcmp(data,"bcd",3));assert(!h->read_romfs(h->userdata,"../fixture",0,nullptr,0));assert(!h->read_romfs(h->userdata,"fixture",3,data,2));++creates;return &creates; }
-static void sample(void*,const EdenDsmodHostApi *h) { ++samples;int button=moduleButton;if(pauseSample.exchange(0)){dispatch_semaphore_signal(entered);dispatch_semaphore_wait(released,DISPATCH_TIME_FOREVER);}h->publish_i64(h->userdata,"acnh.ready",1);h->publish_i64(h->userdata,"pdrv.a",button);h->publish_text(h->userdata,"island.name","Synthetic island"); }
+static void sample(void*,const EdenDsmodHostApi *h) { ++samples;int button=moduleButton;if(pauseSample.exchange(0)){dispatch_semaphore_signal(entered);dispatch_semaphore_wait(released,DISPATCH_TIME_FOREVER);}h->publish_i64(h->userdata,"acnh.ready",1);h->publish_i64(h->userdata,"pdrv.a",button);h->publish_i64(h->userdata,"test.argument",argument);h->publish_text(h->userdata,"island.name","Synthetic island"); }
 static void configure(void*,const EdenDsmodHostExtensions *h) { codecs=*h;assert(!h->mailbox_address && !h->store_u32 && h->decode_astc); }
 static EdenDsmodBool action(void*,const char*,int64_t n) { argument=(int)n;return 1; }
 static EdenDsmodBool image(void*,const EdenDsmodHostApi *h,const char *key,void *r,EdenDsmodImageSink sink) { ++imageLoads;assert(!h->write_memory && !h->publish_i64 && !h->get_text);assert(h->get_i64(h->userdata,"missing",42)==42);assert(h->get_i64(h->userdata,"__relocation_delta",42)==0);uint8_t pixels[]={255,0,0,255,0,255,0,128};sink(r,strstr(key,"oversize") ? 4097 : 2,1,pixels,sizeof pixels);return 1; }
@@ -48,7 +48,19 @@ int main(void) { @autoreleasepool {
     op.reserved=1;assert(!writer.write_batch(writer.userdata,&op,1) && batches==1);op.reserved=0;
     assert(!writer.write_batch(writer.userdata,&op,33) && !writer.write_batch(writer.userdata,nullptr,1));
     assert([c.snapshot[@"island.name"]isEqual:@"Synthetic island"]);
-    [c action:@"ui_open" argument:4];until(^{return argument==4;});
+    __block int publishedArgument=0;
+    id observation=[NSNotificationCenter.defaultCenter addObserverForName:@"DmCompanionInteractionSampled"
+        object:c queue:nil usingBlock:^(NSNotification *){
+            assert(NSThread.isMainThread);
+            publishedArgument=[c.snapshot[@"test.argument"]intValue];
+        }];
+    [c action:@"ui_open" argument:4];
+    NSDate *deadline=[NSDate dateWithTimeIntervalSinceNow:2];
+    while(publishedArgument!=4 && [deadline timeIntervalSinceNow]>0)
+        [NSRunLoop.currentRunLoop runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:.01]];
+    assert(publishedArgument==4 && argument==4);
+    [NSNotificationCenter.defaultCenter removeObserver:observation];
+    puts("companion Apple: accepted interaction publishes a fresh snapshot before notifying the UI");
     moduleButton=0;until(^{return input==0;});
     [c action:@"host.press.b" argument:500];until(^{return input==2;});
     [c setVisible:NO];assert(input==0);[c setVisible:YES];usleep(100000);assert(input==0);

@@ -22,6 +22,7 @@
 #import "companion_apple.h"
 void *dm_companion_view_controller(void);
 void dm_companion_ui_state(int hidden,int physical,int presented);
+void dm_companion_ui_dock_insets(double left,double right,double bottom);
 static _Atomic int g_phone_canvas,g_display_policy_known;
 static void front_ios_lan_audio(int paused);
 static UIBackgroundTaskIdentifier g_lan_task;
@@ -474,6 +475,10 @@ static void front_controls_defaults(void) {
 - (void)dealloc {
     [NSNotificationCenter.defaultCenter removeObserver:self];
 }
+- (void)viewSafeAreaInsetsDidChange {
+    [super viewSafeAreaInsetsDidChange];
+    [self.view setNeedsLayout];
+}
 - (void)viewDidLayoutSubviews {
     [super viewDidLayoutSubviews];
     [self updateOrientation:NO];
@@ -493,8 +498,9 @@ static void front_controls_defaults(void) {
     if(self.companion){
         BOOL portrait=[self showsCompanion], physical=self.physicalController;
         CGRect safe=UIEdgeInsetsInsetRect(b,[self canvasInsets]);
-        dm_companion_layout layout=adaptive?dm_companion_fold_layout(b,safe,portrait,!physical):dm_companion_screen_layout(safe,portrait,!physical);
+        dm_companion_layout layout=adaptive?dm_companion_fold_layout(b,safe,portrait,!physical):dm_companion_screen_layout(b,safe,portrait,!physical);
         self.game.frame=layout.game;self.pad.frame=layout.controls;self.companion.view.frame=layout.panel;
+        dm_companion_ui_dock_insets(layout.dock.left,layout.dock.right,layout.dock.bottom);
         dm_gamepad_companion_frame(self.canvas,portrait && !physical?layout.panel:CGRectZero);
         if(!portrait && !self.companion.view.hidden)[DMCompanion.shared action:@"bag_cancel" argument:0];
         self.companion.view.hidden=!portrait;
