@@ -23,7 +23,7 @@
 void *dm_companion_view_controller(void);
 void dm_companion_ui_state(int hidden,int physical,int presented);
 void dm_companion_ui_dock_insets(double left,double right,double bottom);
-static _Atomic int g_phone_canvas,g_display_policy_known;
+static _Atomic int g_phone_canvas,g_outer_display,g_display_policy_known;
 static void front_ios_lan_audio(int paused);
 static UIBackgroundTaskIdentifier g_lan_task;
 static BOOL g_lan_task_active;
@@ -48,6 +48,9 @@ int front_controls_full_canvas(void) {
     // UIKit can query the launch policy before a root view or hinge observation
     // exists. Expanded Duo scenes subsequently publish their native policy.
     return atomic_load(&g_display_policy_known)?atomic_load(&g_phone_canvas):UIDevice.currentDevice.userInterfaceIdiom==UIUserInterfaceIdiomPhone;
+}
+int front_controls_outer_display(void) {
+    return atomic_load(&g_display_policy_known)?atomic_load(&g_outer_display):0;
 }
 UIInterfaceOrientationMask front_ios_orientation_mask(void) {
     if(!DMCompanion.shared.supported || front_controls_full_canvas())return UIInterfaceOrientationMaskLandscape;
@@ -461,8 +464,10 @@ static void front_controls_defaults(void) {
 - (void)deviceOrientationChanged:(NSNotification *)note { (void)note;[self updateOrientation:NO];[self.view setNeedsLayout]; }
 - (void)updateOrientation:(BOOL)force {
     (void)force;
-    BOOL fullPhone=[self isOuterDisplay] || self.isStandardPhone;
+    BOOL outer=[self isOuterDisplay];
+    BOOL fullPhone=outer || self.isStandardPhone;
     BOOL changed=atomic_exchange(&g_phone_canvas,fullPhone)!=fullPhone;
+    atomic_store(&g_outer_display,outer);
     atomic_store(&g_display_policy_known,1);
     UIInterfaceOrientationMask policy=front_ios_orientation_mask();
     changed|=self.lastOrientationPolicy!=policy;self.lastOrientationPolicy=policy;
