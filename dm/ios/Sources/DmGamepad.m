@@ -117,6 +117,7 @@ int dm_opmode(void);   // hle_oe.c: 0 = handheld
 static __weak DmGamepad *g_view;
 void front_native_ui_context(unsigned context);
 int front_controls_full_canvas(void);
+int front_controls_outer_display(void);
 
 double dm_touch_default_slow_walk_radius(double deadZone) {
     return deadZone + (K_FULL - deadZone) * K_WALK_TILT;
@@ -327,9 +328,10 @@ static BOOL isDrop(int b) { return b == B_ZL || b == B_L || b == B_ZR || b == B_
 static BOOL isClick(int b) { return b == B_LS || b == B_RS; }
 - (CGPoint)dropCenter:(int)b { CGRect s = self.safe; CGFloat u = self.u; BOOL z = b == B_ZL || b == B_ZR;
     CGPoint p=_sideControls ? self.sideGeometry.shoulder[b==B_ZL ? 0 : b==B_L ? 1 : b==B_ZR ? 2 : 3] : side(s,b==B_ZR || b==B_R,(z ? K_ZL_X:K_L_X)*u,CGRectGetMinY(s)+(z ? K_ZL_Y:K_L_Y)*u);
-    if(!_sideControls && front_controls_full_canvas() && (b==B_ZL || b==B_L)){
-        // Stack the left shoulders in the lower rail, below the camera's
-        // middle-height strip. The left stick and D-pad have a separate lane.
+    if(!_sideControls && front_controls_outer_display() && (b==B_ZL || b==B_L)){
+        // Compact phone environments, including the Duo cover screen, stack the
+        // left shoulders in the lower rail; full-size environments mirror the
+        // right column.
         p.y=CGRectGetMaxY(s)-(K_L_R*1.05+8)*u;
         if(z)p.y-=((K_L_R+K_ZL_R)*1.05+12)*u;
     }
